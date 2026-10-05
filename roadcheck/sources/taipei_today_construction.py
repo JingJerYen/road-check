@@ -1,14 +1,19 @@
-"""臺北市今日施工資訊（工務局，data.taipei）。
+"""臺北市今日施工資訊（工務局道路挖掘管理中心，經 data.taipei 發布）。
 
 資料集頁面：https://data.taipei/dataset/detail?id=c208dabd-2da0-4e6d-8dbd-a004b9782b0a
-欄位（官方說明）：
-  Ac_no 核准文號 | sno 序號 | AppMode 通報類別 | X 經度 | Y 緯度 | AppTime 通報時間
-  App_Name 施工單位 | C_Name 行政區 | Addr 施工地點 | Cb_Da 核准施工起日 | Ce_Da 核准施工迄日
-  Co_Ti 施工時段 | NPurp 挖掘目的 | DType 延期原因 | DLen 挖掘長度
-  IsStay 是否長期工區 | IsBlock 是否影響交通 | PlanB 替代方案 | WItem 施工項目 | Positions 施工位置
+實際檔案：  https://tpnco.blob.core.windows.net/blobfs/Todaywork.json（每 10 分鐘更新）
 
-資源 ID（rid）請以 data.taipei 頁面上的「下載」連結為準，可用環境變數
-ROADCHECK_TAIPEI_TODAY_URL 整個覆寫 URL。
+已接真資料驗證（2026-10）。檔案是 GeoJSON FeatureCollection，每個 feature 的 properties：
+  Ac_no 核備文號 | sno 序號（同一文號可多筆）| AppMode 通報類別代碼 | X/Y TWD97 座標（公尺）
+  AppTime 通報時間 | App_Name 施工單位 | C_Name 行政區（不含「區」字）| Addr 施工位置
+  Cb_Da/Ce_Da 核准施工起迄日（民國 yyy/mm/dd）| Co_Ti 施工時段（文字）
+  Tc_Na 廠商 | Tc_Ma/Tc_Tl 監工 | Tc_Ma3/Tc_Tl3 現場人員 | NPurp 挖掘目的 | DType 逾時原因
+  DLen 挖掘長度 | IsStay 是否長期工區（是／否）| IsBlock 是否影響交通（是／否）| PlanB 替代方案
+  WItem 施工項目 | Positions_type MultiPolygon／MultiLineString | Positions 施工範圍座標（TWD97）
+內容只有「今天在施工」的案件，沒有未來排程；Cb_Da 不會晚於今天。
+
+parse() 也接受 data.taipei resourceAquire 的 {"result":{"results":[...]}} 與單純 list（舊格式，
+X/Y 為經緯度、Positions 為文字），方便離線測試與日後換來源。URL 可用 ROADCHECK_TAIPEI_TODAY_URL 覆寫。
 """
 from __future__ import annotations
 
@@ -16,31 +21,41 @@ import os
 from typing import Any
 
 from ..dates import parse_bool, parse_date
+from ..geo import LatLon, centroid, looks_like_twd97, twd97_to_wgs84
 from ..models import Event
 from .base import Source, http_get_json
 
-# 預設 rid 來自搜尋結果，尚未在此環境驗證；請對照 data.taipei 頁面。
-DEFAULT_RID = "875ea014-3ad0-4c79-93d3-049adb813c47"
-DEFAULT_URL = (
-    "https://data.taipei/api/v1/dataset/" + DEFAULT_RID + "?scope=resourceAquire&limit=1000&offset=0"
-)
+DEFAULT_URL = "https://tpnco.blob.core.windows.net/blobfs/Todaywork.json"
 DATASET_PAGE = "https://data.taipei/dataset/detail?id=c208dabd-2da0-4e6d-8dbd-a004b9782b0a"
+
+# 資料集頁面「備註」欄的對照表
+APP_MODE = {
+    "0": "施工通報",
+    "3": "銑鋪通報",
+    "4": "搶修通報",
+    "5": "道路維護通報",
+    "6": "人手孔施工通報",
+    "B": "建案公設復舊",
+}
 
 
 def _records(raw: Any) -> list[dict]:
-    """data.taipei 有兩種回傳形狀：
-    - /api/v1/dataset/{rid}?scope=resourceAquire -> {"result": {"results": [...], "count": N}}
-    - resource.download -> 直接是 list
+    """接受三種形狀：
+    - GeoJSON {"type":"FeatureCollection","features":[{"properties":{...}}]}（目前的真資料）
+    - data.taipei resourceAquire {"result":{"results":[...]}}
+    - 直接是 list
     """
     if isinstance(raw, list):
         return raw
     if isinstance(raw, dict):
+        if isinstance(raw.get("features"), list):
+            return [f.get("properties") or {} for f in raw["features"]]
         if "result" in raw and isinstance(raw["result"], dict):
             return list(raw["result"].get("results", []))
         for key in ("results", "data", "records"):
             if isinstance(raw.get(key), list):
                 return raw[key]
-    raise ValueError("unrecognised data.taipei payload shape")
+    raise ValueError("unrecognised Todaywork payload shape")
 
 
 def _get(rec: dict, *names: str, default=""):
@@ -55,57 +70,77 @@ def _get(rec: dict, *names: str, default=""):
 
 def _float(v) -> float | None:
     try:
-        f = float(str(v).strip())
+        return float(str(v).strip())
     except (TypeError, ValueError):
         return None
-    return f
+
+
+def _to_latlon(x: float, y: float) -> LatLon | None:
+    """X/Y 可能是 TWD97 公尺或經緯度（舊格式），也可能 X/Y 對調。"""
+    if looks_like_twd97(x, y):
+        return twd97_to_wgs84(x, y)
+    lat, lon = y, x
+    if lat > 90 and lon < 90:   # 對調
+        lat, lon = lon, lat
+    if 21.0 < lat < 26.5 and 119.0 < lon < 123.0:
+        return lat, lon
+    return None
+
+
+def _shapes(positions: Any) -> list[list[LatLon]]:
+    """Positions（MultiPolygon 或 MultiLineString 的巢狀座標）-> 多個 shape。
+
+    遞迴找到最底層的「點的序列」（每個點是 [x, y]），每一串轉成一個 shape。
+    """
+    out: list[list[LatLon]] = []
+
+    def walk(node):
+        if not isinstance(node, list) or not node:
+            return
+        if all(isinstance(p, (list, tuple)) and len(p) >= 2 and isinstance(p[0], (int, float)) for p in node):
+            pts = [_to_latlon(float(p[0]), float(p[1])) for p in node]
+            pts = [p for p in pts if p is not None]
+            if len(pts) >= 2:
+                out.append(pts)
+            return
+        for child in node:
+            walk(child)
+
+    walk(positions)
+    return out
 
 
 class TaipeiTodayConstruction(Source):
     name = "taipei_today_construction"
     kind = "construction"
 
-    def __init__(self, url: str | None = None, page_size: int = 1000):
+    def __init__(self, url: str | None = None):
         self.url = url or os.environ.get("ROADCHECK_TAIPEI_TODAY_URL", DEFAULT_URL)
-        self.page_size = page_size
 
     def fetch_raw(self):
-        # resourceAquire 介面一次最多 1000 筆，有 offset 就翻頁
-        if "scope=resourceAquire" not in self.url:
-            return http_get_json(self.url)
-        all_rows: list[dict] = []
-        offset = 0
-        while True:
-            url = self.url.replace("offset=0", f"offset={offset}")
-            payload = http_get_json(url)
-            rows = _records(payload)
-            all_rows.extend(rows)
-            count = payload.get("result", {}).get("count") if isinstance(payload, dict) else None
-            if not rows or count is None or len(all_rows) >= int(count):
-                break
-            offset += self.page_size
-        return all_rows
+        return http_get_json(self.url)
 
     def parse(self, raw) -> list[Event]:
         events: list[Event] = []
         for rec in _records(raw):
-            ac_no = str(_get(rec, "Ac_no", "AC_NO", "ac_no"))
+            ac_no = str(_get(rec, "Ac_no", "AC_NO"))
             sno = str(_get(rec, "sno", default="0"))
             if not ac_no:
                 continue
-            lon = _float(_get(rec, "X", default=None))
-            lat = _float(_get(rec, "Y", default=None))
-            # 偶爾 X/Y 會對調，用台北的範圍判斷修正
-            if lat is not None and lon is not None and lat > 100 and lon < 90:
-                lat, lon = lon, lat
-            if lat is not None and not (21.0 < lat < 26.5):
-                lat = lon = None
-            addr = str(_get(rec, "Addr", "Positions"))
-            positions = str(_get(rec, "Positions"))
+            x, y = _float(_get(rec, "X", default=None)), _float(_get(rec, "Y", default=None))
+            loc = _to_latlon(x, y) if x is not None and y is not None else None
+            positions = _get(rec, "Positions")
+            shapes = _shapes(positions) if isinstance(positions, list) else []
+            if shapes:
+                loc = centroid(p for s in shapes for p in s) or loc
+            addr = str(_get(rec, "Addr"))
+            positions_text = positions if isinstance(positions, str) else ""
             district = str(_get(rec, "C_Name"))
+            if district and not district.endswith("區"):
+                district += "區"
             purpose = str(_get(rec, "NPurp"))
-            agency = str(_get(rec, "App_Name"))
-            title = f"{district}{addr}" if district and not addr.startswith(district) else addr
+            app_mode = str(_get(rec, "AppMode"))
+            title = addr if not district or addr.startswith(district) else f"{district}{addr}"
             if purpose:
                 title = f"{title}（{purpose}）"
             events.append(
@@ -114,25 +149,29 @@ class TaipeiTodayConstruction(Source):
                     source_id=f"{ac_no}-{sno}" if sno not in ("", "0") else ac_no,
                     kind="construction",
                     title=title or ac_no,
-                    lat=lat,
-                    lon=lon,
-                    address=f"{addr} {positions}".strip(),
+                    lat=loc[0] if loc else None,
+                    lon=loc[1] if loc else None,
+                    address=f"{addr} {positions_text}".strip(),
                     start=parse_date(_get(rec, "Cb_Da", default=None)),
                     end=parse_date(_get(rec, "Ce_Da", default=None)),
                     time_window=str(_get(rec, "Co_Ti")),
                     blocks_traffic=parse_bool(_get(rec, "IsBlock", default=None)),
-                    agency=agency,
+                    agency=str(_get(rec, "App_Name")),
                     purpose=purpose,
                     url=DATASET_PAGE,
+                    shapes=shapes,
                     extra={
                         "district": district,
+                        "app_mode": APP_MODE.get(app_mode, app_mode),
                         "length_m": _get(rec, "DLen"),
                         "long_term": parse_bool(_get(rec, "IsStay", default=None)),
                         "delay_reason": _get(rec, "DType"),
                         "work_items": _get(rec, "WItem"),
                         "plan_b": _get(rec, "PlanB"),
+                        "contractor": _get(rec, "Tc_Na"),
                         "contact": _get(rec, "Tc_Ma"),
                         "contact_tel": _get(rec, "Tc_Tl"),
+                        "reported_at": _get(rec, "AppTime"),
                     },
                 )
             )

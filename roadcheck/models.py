@@ -22,8 +22,10 @@ KIND_LABEL = {
 # 「忠孝東路四段」「復興南路」「市民大道」「八德路2段」
 # 排除連接詞與行政區字樣，避免「口至敦化南路」「大安區忠孝東路」被整段吃進去
 _ROAD_RE = re.compile(
-    r"[^\s\d口至到與及和、，,．.（）()~～\-區段巷弄號]{1,6}?(?:大道|路|街)(?:[一二三四五六七八九十\d]{1,2}段)?"
+    r"[^\s\d口至到與及和、，,．.。；;：:（）()【】\[\]「」<>＜＞~～\-區段巷弄號]{1,6}?(?:大道|路|街)(?:[一二三四五六七八九十\d]{1,2}段)?"
 )
+# 會被誤認成路名的常見詞（資料來源的分類名稱、泛稱）
+_NOT_ROADS = {"使用道路", "臨時使用道路", "山區道路", "區域道路", "道路", "馬路", "相鄰道路", "鄰近道路"}
 _CJK_NUM = {"一": "1", "二": "2", "三": "3", "四": "4", "五": "5",
             "六": "6", "七": "7", "八": "8", "九": "9", "十": "10"}
 
@@ -46,7 +48,7 @@ def extract_roads(text: str) -> set[str]:
         return set()
     found = {normalize_road(m.group(0)) for m in _ROAD_RE.finditer(text)}
     # 過濾掉太短或不像路名的碎片
-    return {r for r in found if len(r) >= 3}
+    return {r for r in found if len(r) >= 3 and r not in _NOT_ROADS and not r.endswith("道路")}
 
 
 @dataclass
@@ -66,6 +68,9 @@ class Event:
     purpose: str = ""
     url: str = ""
     extra: dict = field(default_factory=dict)
+    # 施工／管制範圍：每個 shape 是一串 (lat, lon)，首尾相同為多邊形，否則為折線。
+    # lat/lon 是代表點（通常是 shapes 的重心），沒有 shapes 時就只用 lat/lon。
+    shapes: list[list[LatLon]] = field(default_factory=list)
 
     @property
     def key(self) -> str:
@@ -79,7 +84,8 @@ class Event:
 
     @property
     def roads(self) -> set[str]:
-        return extract_roads(f"{self.title} {self.address}")
+        """地點文字裡的路名；address 沒東西才退回用 title（title 可能含來源分類字樣）。"""
+        return extract_roads(self.address or self.title)
 
     def fingerprint(self) -> str:
         """內容指紋。日期或範圍變了就會改變，用來判斷要不要重新通知。"""
@@ -99,6 +105,7 @@ class Event:
         d["start"] = self.start.isoformat() if self.start else None
         d["end"] = self.end.isoformat() if self.end else None
         d["extra"] = json.dumps(self.extra, ensure_ascii=False)
+        d["shapes"] = json.dumps([[list(p) for p in shape] for shape in self.shapes]) if self.shapes else None
         d["fingerprint"] = self.fingerprint()
         return d
 
@@ -120,6 +127,7 @@ class Event:
             purpose=row["purpose"] or "",
             url=row["url"] or "",
             extra=json.loads(row["extra"] or "{}"),
+            shapes=[[tuple(p) for p in shape] for shape in json.loads(row.get("shapes") or "[]")],
         )
 
 

@@ -30,7 +30,11 @@ def format_match(m: Match) -> str:
     if ev.blocks_traffic:
         lines.append("影響交通：是")
     if m.reason == "distance" and m.distance_m is not None:
-        lines.append(f"距離你的{'位置' if m.subscription.kind == 'point' else '路線'}約 {m.distance_m:.0f} 公尺")
+        where = "位置" if m.subscription.kind == "point" else "路線"
+        if m.distance_m < 1:
+            lines.append(f"你的{where}就在{'施工' if ev.kind == 'construction' else '管制'}範圍內")
+        else:
+            lines.append(f"距離你的{where}約 {m.distance_m:.0f} 公尺")
     elif m.matched_roads:
         lines.append("經過路段：" + "、".join(m.matched_roads))
     if ev.agency:

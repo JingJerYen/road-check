@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Iterable, Optional
 
-from .geo import haversine_m, point_to_polyline_m
+from .geo import haversine_m, point_to_polyline_m, point_to_shape_m, polyline_to_shape_m
 from .models import Event, Match, Subscription
 
 
@@ -18,15 +18,28 @@ def is_relevant_period(ev: Event, today: date, horizon_days: int) -> bool:
     return True
 
 
+def distance_m(sub: Subscription, ev: Event) -> Optional[float]:
+    """訂閱到事件的最短距離；事件沒有任何座標時回 None。
+
+    有 shapes（施工多邊形、管制範圍）就對形狀算，在多邊形裡面是 0；否則對代表點算。
+    """
+    if ev.shapes:
+        if sub.kind == "point":
+            return min(point_to_shape_m(sub.points[0], s) for s in ev.shapes)
+        return min(polyline_to_shape_m(sub.points, s) for s in ev.shapes)
+    loc = ev.location
+    if loc is None:
+        return None
+    if sub.kind == "point":
+        return haversine_m(sub.points[0], loc)
+    return point_to_polyline_m(loc, sub.points)
+
+
 def match_one(sub: Subscription, ev: Event) -> Optional[Match]:
     if sub.only_blocking and ev.blocks_traffic is False:
         return None
-    loc = ev.location
-    if loc is not None:
-        if sub.kind == "point":
-            d = haversine_m(sub.points[0], loc)
-        else:
-            d = point_to_polyline_m(loc, sub.points)
+    d = distance_m(sub, ev)
+    if d is not None:
         if d <= sub.radius_m:
             return Match(sub, ev, reason="distance", distance_m=d)
         return None

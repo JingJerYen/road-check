@@ -107,3 +107,81 @@ class StoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShapeMatchTests(unittest.TestCase):
+    RING = [(25.040, 121.560), (25.040, 121.562), (25.042, 121.562), (25.042, 121.560), (25.040, 121.560)]
+
+    def test_point_inside_polygon_is_zero_distance(self):
+        sub = Subscription(id=1, name="p", kind="point", points=[(25.041, 121.561)], radius_m=10)
+        # 代表點放很遠，證明用的是 shapes 不是 lat/lon
+        m = match_one(sub, ev(lat=25.1, lon=121.7, shapes=[self.RING]))
+        self.assertIsNotNone(m)
+        self.assertEqual(m.distance_m, 0.0)
+
+    def test_point_outside_polygon_uses_boundary_distance(self):
+        sub = Subscription(id=1, name="p", kind="point", points=[(25.0425, 121.561)], radius_m=100)
+        m = match_one(sub, ev(shapes=[self.RING]))          # 北邊 0.0005 度 ≈ 55 m
+        self.assertIsNotNone(m)
+        self.assertAlmostEqual(m.distance_m, 55, delta=5)
+        sub_far = Subscription(id=2, name="p", kind="point", points=[(25.045, 121.561)], radius_m=100)
+        self.assertIsNone(match_one(sub_far, ev(shapes=[self.RING])))
+
+    def test_route_crossing_polygon(self):
+        sub = Subscription(id=3, name="r", kind="route", points=[(25.030, 121.561), (25.050, 121.561)], radius_m=20)
+        m = match_one(sub, ev(shapes=[self.RING]))
+        self.assertIsNotNone(m)
+        self.assertLess(m.distance_m, 1.0)
+
+    def test_open_line_shape(self):
+        line = [(25.040, 121.560), (25.040, 121.570)]
+        sub = Subscription(id=4, name="p", kind="point", points=[(25.0403, 121.565)], radius_m=50)
+        m = match_one(sub, ev(shapes=[line]))
+        self.assertIsNotNone(m)
+        self.assertAlmostEqual(m.distance_m, 33, delta=5)
+
+
+class ShapeStoreTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
+        self.tmp.close()
+
+    def tearDown(self):
+        os.unlink(self.tmp.name)
+
+    def test_shapes_roundtrip(self):
+        store = Store(self.tmp.name)
+        ring = [(25.0, 121.5), (25.0, 121.6), (25.1, 121.6), (25.0, 121.5)]
+        e = ev(lat=25.03, lon=121.55, shapes=[ring, [(25.2, 121.5), (25.3, 121.5)]])
+        store.upsert_events([e])
+        got = store.list_events()[0]
+        self.assertEqual(got.shapes, e.shapes)
+        self.assertEqual(got.fingerprint(), e.fingerprint())
+        # 更新也會寫 shapes
+        e2 = ev(lat=25.03, lon=121.55, shapes=[ring])
+        store.upsert_events([e2])
+        self.assertEqual(len(store.list_events()[0].shapes), 1)
+        store.close()
+
+    def test_migrates_old_database_without_shapes_column(self):
+        import sqlite3
+
+        conn = sqlite3.connect(self.tmp.name)
+        conn.executescript("""
+            CREATE TABLE events (
+                key TEXT PRIMARY KEY, source TEXT NOT NULL, source_id TEXT NOT NULL, kind TEXT NOT NULL,
+                title TEXT NOT NULL, lat REAL, lon REAL, address TEXT, start TEXT, end TEXT, time_window TEXT,
+                blocks_traffic INTEGER, agency TEXT, purpose TEXT, url TEXT, extra TEXT,
+                fingerprint TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL);
+            INSERT INTO events VALUES ('s:old','s','old','construction','t',25.0,121.5,'','2025-10-05','2025-10-06','',
+                NULL,'','','','{}','abc','2025-10-05T00:00:00+00:00','2025-10-05T00:00:00+00:00');
+        """)
+        conn.commit()
+        conn.close()
+        store = Store(self.tmp.name)
+        old = store.list_events()
+        self.assertEqual(len(old), 1)
+        self.assertEqual(old[0].shapes, [])
+        store.upsert_events([ev(source_id="new", shapes=[[(25.0, 121.5), (25.1, 121.5)]])])
+        self.assertEqual(len(store.list_events()), 2)
+        store.close()

@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS events (
     lat REAL, lon REAL,
     address TEXT, start TEXT, end TEXT, time_window TEXT,
     blocks_traffic INTEGER, agency TEXT, purpose TEXT, url TEXT, extra TEXT,
+    shapes TEXT,
     fingerprint TEXT NOT NULL,
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL
@@ -58,6 +59,14 @@ class Store:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """舊版資料庫沒有的欄位補上。"""
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(events)")}
+        if "shapes" not in cols:
+            self.conn.execute("ALTER TABLE events ADD COLUMN shapes TEXT")
+            self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -123,22 +132,22 @@ class Store:
                 added += 1
                 self.conn.execute(
                     "INSERT INTO events (key, source, source_id, kind, title, lat, lon, address, start, end, time_window,"
-                    " blocks_traffic, agency, purpose, url, extra, fingerprint, first_seen, last_seen)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " blocks_traffic, agency, purpose, url, extra, shapes, fingerprint, first_seen, last_seen)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (ev.key, row["source"], row["source_id"], row["kind"], row["title"], row["lat"], row["lon"],
                      row["address"], row["start"], row["end"], row["time_window"],
                      None if row["blocks_traffic"] is None else int(row["blocks_traffic"]),
-                     row["agency"], row["purpose"], row["url"], row["extra"], row["fingerprint"], now, now),
+                     row["agency"], row["purpose"], row["url"], row["extra"], row["shapes"], row["fingerprint"], now, now),
                 )
             else:
                 if existing["fingerprint"] != row["fingerprint"]:
                     changed += 1
                 self.conn.execute(
                     "UPDATE events SET title=?, lat=?, lon=?, address=?, start=?, end=?, time_window=?, blocks_traffic=?,"
-                    " agency=?, purpose=?, url=?, extra=?, fingerprint=?, last_seen=? WHERE key=?",
+                    " agency=?, purpose=?, url=?, extra=?, shapes=?, fingerprint=?, last_seen=? WHERE key=?",
                     (row["title"], row["lat"], row["lon"], row["address"], row["start"], row["end"], row["time_window"],
                      None if row["blocks_traffic"] is None else int(row["blocks_traffic"]),
-                     row["agency"], row["purpose"], row["url"], row["extra"], row["fingerprint"], now, ev.key),
+                     row["agency"], row["purpose"], row["url"], row["extra"], row["shapes"], row["fingerprint"], now, ev.key),
                 )
         self.conn.commit()
         return added, changed

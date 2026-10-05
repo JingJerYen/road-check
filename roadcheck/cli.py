@@ -133,24 +133,25 @@ def cmd_demo(args, store: Store) -> int:
     from .sources import TaipeiTodayConstruction, TaipeiExtRestriction
 
     today = date.today()
-    cons = TaipeiTodayConstruction().from_file(FIXTURE_DIR / "taipei_today_construction.sample.json")
-    rest = TaipeiExtRestriction().from_file(FIXTURE_DIR / "taipei_ext_restriction.sample.html")
-    # 樣本日期是固定的，demo 時平移到今天附近
-    base = min(e.start for e in cons + rest if e.start)
-    shift = today - base
+    cons = TaipeiTodayConstruction().from_file(FIXTURE_DIR / "taipei_today_construction.real.json")
+    rest = TaipeiExtRestriction().from_file(FIXTURE_DIR / "taipei_ext_restriction.real.json")
+    # 樣本日期是固定的（2026-10）；已經過期的事件平移成從今天開始，還沒過期的照原樣
+    shifted = 0
     for e in cons + rest:
-        if e.start:
-            e.start += shift
-        if e.end:
-            e.end += shift
+        if e.start and e.end and e.end < today:
+            delta = today - e.start
+            e.start += delta
+            e.end += delta
+            shifted += 1
+    # 樣本裡有凱達格蘭大道集會、松高路臨時使用道路、市民大道五段施工，訂閱就放在那附近
     subs = [
-        Subscription(id=1, name="停車：忠孝復興", kind="point", points=[(25.0418, 121.5440)], radius_m=150,
-                     roads=["忠孝東路四段"]),
-        Subscription(id=2, name="通勤：信義→民生", kind="route",
-                     points=[(25.0330, 121.5654), (25.0415, 121.5495), (25.0520, 121.5440), (25.0580, 121.5440)],
-                     radius_m=60, roads=["民生東路三段"]),
+        Subscription(id=1, name="停車：松高路", kind="point", points=[(25.0391, 121.5647)], radius_m=100,
+                     roads=["南京東路二段"]),
+        Subscription(id=2, name="通勤：中山南路→市民大道", kind="route",
+                     points=[(25.0380, 121.5175), (25.0399, 121.5168), (25.0450, 121.5300), (25.0447, 121.5750)],
+                     radius_m=60, roads=["凱達格蘭大道"]),
     ]
-    print(f"demo: {len(cons)} construction + {len(rest)} restriction sample events, dates shifted by {shift.days} days")
+    print(f"demo: {len(cons)} construction + {len(rest)} restriction sample events ({shifted} past events moved to today)")
     matches = match_all(subs, cons + rest, today=today, horizon_days=args.horizon_days)
     for sub_id, group in group_by_subscription(matches).items():
         ConsoleNotifier().send(group[0].subscription.name, format_digest(group[0].subscription.name, group))
