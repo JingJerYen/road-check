@@ -15,28 +15,45 @@ class TodayConstructionRealTests(unittest.TestCase):
         self.events = TaipeiTodayConstruction().from_file(FIX / "taipei_today_construction.real.json")
         self.by_id = {e.source_id: e for e in self.events}
 
-    def test_geojson_shape_and_ids(self):
-        self.assertEqual(len(self.events), 4)
-        self.assertEqual(set(self.by_id), {"11501436-13", "11501436-1", "115002040-1", "115001828-6"})
+    def test_geojson_grouped_by_case_number(self):
+        # 4 筆 feature，其中 11501436 有兩個 sno，合併成一個事件
+        self.assertEqual(len(self.events), 3)
+        self.assertEqual(set(self.by_id), {"11501436", "115002040", "115001828"})
+        merged = self.by_id["11501436"]
+        self.assertEqual(merged.extra["segments"], 2)
+        self.assertTrue(merged.blocks_traffic)             # sno 13 是、sno 1 否 -> 任一筆影響交通就算
+        self.assertEqual(len(merged.shapes), 2)
+
+    def test_test_records_and_giant_shapes_are_dropped(self):
+        raw = [
+            {"Ac_no": "99015156", "sno": "1", "X": "307978", "Y": "2769466", "Addr": "全市APP測試",
+             "Tc_Na": "測試營造股份有限公司", "Cb_Da": "115/01/01", "Ce_Da": "115/12/31"},
+            {"Ac_no": "11500001", "sno": "1", "X": "307978", "Y": "2769466", "Addr": "正常路",
+             "Positions_type": "MultiPolygon",
+             "Positions": [[[[250000, 2700000], [330000, 2700000], [330000, 2800000], [250000, 2700000]]]]},
+        ]
+        evs = TaipeiTodayConstruction().parse(raw)
+        self.assertEqual([e.source_id for e in evs], ["11500001"])
+        self.assertEqual(evs[0].shapes, [])                 # 100 km 的多邊形被丟掉，退回代表點
+        self.assertIsNotNone(evs[0].location)
 
     def test_twd97_converted_to_taipei_latlon(self):
         for e in self.events:
             self.assertIsNotNone(e.location, e.source_id)
             self.assertTrue(24.9 < e.lat < 25.3 and 121.4 < e.lon < 121.7, (e.source_id, e.location))
-        e = self.by_id["115001828-6"]                       # 市民大道5段50號前
+        e = self.by_id["115001828"]                         # 市民大道5段50號前
         self.assertAlmostEqual(e.lat, 25.0477, places=3)
         self.assertAlmostEqual(e.lon, 121.5647, places=3)
 
     def test_positions_become_shapes(self):
-        poly = self.by_id["11501436-13"]                    # MultiPolygon
-        self.assertEqual(len(poly.shapes), 1)
+        poly = self.by_id["11501436"]                       # MultiPolygon
         self.assertEqual(poly.shapes[0][0], poly.shapes[0][-1])   # 封閉
-        lines = self.by_id["115002040-1"]                   # MultiLineString
+        lines = self.by_id["115002040"]                     # MultiLineString
         self.assertEqual(len(lines.shapes), 7)
         self.assertTrue(all(len(s) == 2 for s in lines.shapes))
 
     def test_fields(self):
-        e = self.by_id["115001828-6"]
+        e = self.by_id["115001828"]
         self.assertEqual((e.start, e.end), (date(2026, 7, 13), date(2026, 10, 20)))   # 115/07/13
         self.assertTrue(e.blocks_traffic)                   # IsBlock 是
         self.assertEqual(e.agency, "水利處")
@@ -44,8 +61,8 @@ class TodayConstructionRealTests(unittest.TestCase):
         self.assertEqual(e.extra["app_mode"], "施工通報")    # AppMode 0
         self.assertTrue(e.title.startswith("信義區市民大道5段50號前"))
         self.assertIn("市民大道5段", e.roads)
-        self.assertEqual(self.by_id["11501436-13"].extra["app_mode"], "道路維護通報")
-        self.assertFalse(self.by_id["11501436-1"].blocks_traffic)
+        self.assertEqual(self.by_id["11501436"].extra["app_mode"], "道路維護通報")
+        self.assertFalse(self.by_id["115002040"].blocks_traffic)
         self.assertEqual(e.extra["contact"], "王ＯＯ")
 
 
@@ -57,8 +74,8 @@ class TodayConstructionLegacyShapeTests(unittest.TestCase):
 
     def test_count_and_keys(self):
         self.assertEqual(len(self.events), 5)
-        self.assertEqual(self.events[0].key, "taipei_today_construction:114A1234567-1")
-        self.assertEqual(self.events[3].source_id, "114D5555555-2")
+        self.assertEqual(self.events[0].key, "taipei_today_construction:114A1234567")
+        self.assertEqual(self.events[3].source_id, "114D5555555")
 
     def test_mixed_date_formats(self):
         self.assertEqual(self.events[0].start, date(2025, 10, 5))   # 114/10/05
@@ -80,13 +97,13 @@ class TodayConstructionLegacyShapeTests(unittest.TestCase):
         self.assertIn("復興南路", self.events[0].roads)
 
     def test_accepts_bare_list_payload(self):
-        raw = [{"Ac_no": "X1", "X": "121.5", "Y": "25.0", "Addr": "測試路", "Cb_Da": "114/01/01", "Ce_Da": "114/01/02"}]
+        raw = [{"Ac_no": "X1", "X": "121.5", "Y": "25.0", "Addr": "假的路", "Cb_Da": "114/01/01", "Ce_Da": "114/01/02"}]
         evs = TaipeiTodayConstruction().parse(raw)
         self.assertEqual(len(evs), 1)
         self.assertEqual(evs[0].source_id, "X1")
 
     def test_swapped_xy_is_corrected(self):
-        raw = [{"Ac_no": "X2", "X": "25.0", "Y": "121.5", "Addr": "測試路"}]
+        raw = [{"Ac_no": "X2", "X": "25.0", "Y": "121.5", "Addr": "假的路"}]
         e = TaipeiTodayConstruction().parse(raw)[0]
         self.assertAlmostEqual(e.lat, 25.0)
         self.assertAlmostEqual(e.lon, 121.5)

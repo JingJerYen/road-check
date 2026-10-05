@@ -95,8 +95,9 @@ class Event:
             "time_window": self.time_window,
             "blocks_traffic": self.blocks_traffic,
             "address": self.address,
-            "lat": round(self.lat, 6) if self.lat is not None else None,
-            "lon": round(self.lon, 6) if self.lon is not None else None,
+            # 代表點是多邊形重心，多一段範圍就會微動；取到 3 位（約 100 公尺）才算「換地方」
+            "lat": round(self.lat, 3) if self.lat is not None else None,
+            "lon": round(self.lon, 3) if self.lon is not None else None,
         }
         return hashlib.sha1(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
 

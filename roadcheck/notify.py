@@ -6,6 +6,7 @@ import os
 import urllib.error
 import urllib.request
 from collections import defaultdict
+from datetime import date
 from typing import Iterable
 
 from .models import KIND_LABEL, Match
@@ -42,9 +43,17 @@ def format_match(m: Match) -> str:
     return "\n".join(lines)
 
 
-def format_digest(name: str, matches: list[Match]) -> str:
+MAX_ITEMS_PER_DIGEST = 15
+
+
+def format_digest(name: str, matches: list[Match], max_items: int = MAX_ITEMS_PER_DIGEST) -> str:
+    """一則訊息：影響交通的、距離近的排前面，超過 max_items 件只說還有幾件。"""
+    ordered = sorted(matches, key=lambda m: (not m.event.blocks_traffic, m.distance_m if m.distance_m is not None else 1e9,
+                                             m.event.start or date.max))
     head = f"🚧 「{name}」附近有 {len(matches)} 件新異動"
-    body = "\n\n".join(format_match(m) for m in matches)
+    body = "\n\n".join(format_match(m) for m in ordered[:max_items])
+    if len(ordered) > max_items:
+        body += f"\n\n…還有 {len(ordered) - max_items} 件，請到來源網站查看"
     text = f"{head}\n\n{body}"
     if len(text) > LINE_MAX_TEXT:
         text = text[: LINE_MAX_TEXT - 20] + "\n…（已截斷）"

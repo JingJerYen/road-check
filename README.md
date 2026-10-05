@@ -26,7 +26,7 @@
 
 ```bash
 git clone https://github.com/JingJerYen/road-check && cd road-check
-python3 -m unittest discover -s tests      # 65 tests，離線
+python3 -m unittest discover -s tests      # 66 tests，離線
 python3 -m roadcheck demo                   # 用真實資料的樣本離線跑一遍，看通知長什麼樣
 python3 -m roadcheck fetch                  # 真的去抓（dig.taipei 要翻頁＋逐案抓幾何，約 5–10 分鐘）
 ```
@@ -95,7 +95,7 @@ tests/fixtures 從真實資料擷取並裁短的樣本（聯絡人已去識別�
 
 事件流程：`fetch` 把每個來源的資料 upsert 進 `events`（以來源＋案號為主鍵，內容指紋用來偵測變更）
 → `match_all` 先用日期視窗過濾，再對每個訂閱算距離或比路名
-→ 每個訂閱彙整成一則訊息 → 推播成功才寫入 `notifications`。
+→ 每個訂閱彙整成一則訊息（影響交通、距離近的排前面，最多列 15 件）→ 推播成功才寫入 `notifications`。
 
 ## 資料來源
 
@@ -108,6 +108,8 @@ tests/fixtures 從真實資料擷取並裁短的樣本（聯絡人已去識別�
   MultiPolygon／MultiLineString，程式會轉成 WGS84 並用整個範圍算距離。
 - 日期是民國 `yyy/mm/dd`，`IsBlock`／`IsStay` 是「是／否」，`C_Name` 沒有「區」字，
   `AppMode` 代碼：0 施工通報、3 銑鋪、4 搶修、5 道路維護、6 人手孔、B 建案公設復舊。
+- 同一核備文號 `Ac_no` 會拆成很多筆 `sno`（一段路一筆，多的有 89 筆），程式合併成一個事件，
+  所以約 1200 筆資料是 140 多件工程。裡面有市府的測試資料（「全市APP測試」，多邊形蓋住整個台北市），會被丟掉。
 - 只有「今天在施工」的案件，沒有未來排程。可用 `ROADCHECK_TAIPEI_TODAY_URL` 覆寫 URL。
 
 ### 臺北市道路挖掘管理中心「外部管制路段」（dig.taipei）

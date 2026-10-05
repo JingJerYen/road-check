@@ -12,6 +12,10 @@
   WItem 施工項目 | Positions_type MultiPolygon／MultiLineString | Positions 施工範圍座標（TWD97）
 內容只有「今天在施工」的案件，沒有未來排程；Cb_Da 不會晚於今天。
 
+同一個核備文號（Ac_no）會有很多筆 sno（一段路一筆，多的有 89 筆），parse() 會合併成一個 Event：
+範圍聯集、日期取最寬、任一筆影響交通就算影響交通。市府放在裡面的測試資料（「全市APP測試」，
+多邊形蓋住整個台北市）會被丟掉。
+
 parse() 也接受 data.taipei resourceAquire 的 {"result":{"results":[...]}} 與單純 list（舊格式，
 X/Y 為經緯度、Positions 為文字），方便離線測試與日後換來源。URL 可用 ROADCHECK_TAIPEI_TODAY_URL 覆寫。
 """
@@ -21,7 +25,7 @@ import os
 from typing import Any
 
 from ..dates import parse_bool, parse_date
-from ..geo import LatLon, centroid, looks_like_twd97, twd97_to_wgs84
+from ..geo import LatLon, centroid, haversine_m, looks_like_twd97, twd97_to_wgs84
 from ..models import Event
 from .base import Source, http_get_json
 
@@ -29,6 +33,9 @@ DEFAULT_URL = "https://tpnco.blob.core.windows.net/blobfs/Todaywork.json"
 DATASET_PAGE = "https://data.taipei/dataset/detail?id=c208dabd-2da0-4e6d-8dbd-a004b9782b0a"
 
 # 資料集頁面「備註」欄的對照表
+# 一個施工範圍的對角線超過這個距離就當成資料錯誤（測試資料的多邊形有 140 公里寬）
+MAX_SHAPE_SPAN_M = 20_000
+
 APP_MODE = {
     "0": "施工通報",
     "3": "銑鋪通報",
@@ -107,7 +114,17 @@ def _shapes(positions: Any) -> list[list[LatLon]]:
             walk(child)
 
     walk(positions)
-    return out
+    return [s for s in out if _span_m(s) <= MAX_SHAPE_SPAN_M]
+
+
+def _span_m(shape: list[LatLon]) -> float:
+    lats = [p[0] for p in shape]
+    lons = [p[1] for p in shape]
+    return haversine_m((min(lats), min(lons)), (max(lats), max(lons)))
+
+
+def _is_test_record(rec: dict) -> bool:
+    return any("測試" in str(_get(rec, k)) for k in ("Addr", "Tc_Na", "App_Name"))
 
 
 class TaipeiTodayConstruction(Source):
@@ -121,58 +138,90 @@ class TaipeiTodayConstruction(Source):
         return http_get_json(self.url)
 
     def parse(self, raw) -> list[Event]:
-        events: list[Event] = []
+        groups: dict[str, list[dict]] = {}
         for rec in _records(raw):
             ac_no = str(_get(rec, "Ac_no", "AC_NO"))
-            sno = str(_get(rec, "sno", default="0"))
-            if not ac_no:
+            if not ac_no or _is_test_record(rec):
                 continue
+            groups.setdefault(ac_no, []).append(rec)
+        return [self._build(ac_no, recs) for ac_no, recs in groups.items()]
+
+    def _build(self, ac_no: str, recs: list[dict]) -> Event:
+        first = recs[0]
+        shapes: list[list[LatLon]] = []
+        locs: list[LatLon] = []
+        positions_text: list[str] = []
+        starts, ends, blocks, addrs, windows = [], [], [], [], []
+        for rec in recs:
             x, y = _float(_get(rec, "X", default=None)), _float(_get(rec, "Y", default=None))
             loc = _to_latlon(x, y) if x is not None and y is not None else None
             positions = _get(rec, "Positions")
-            shapes = _shapes(positions) if isinstance(positions, list) else []
-            if shapes:
-                loc = centroid(p for s in shapes for p in s) or loc
-            addr = str(_get(rec, "Addr"))
-            positions_text = positions if isinstance(positions, str) else ""
-            district = str(_get(rec, "C_Name"))
-            if district and not district.endswith("區"):
-                district += "區"
-            purpose = str(_get(rec, "NPurp"))
-            app_mode = str(_get(rec, "AppMode"))
-            title = addr if not district or addr.startswith(district) else f"{district}{addr}"
-            if purpose:
-                title = f"{title}（{purpose}）"
-            events.append(
-                Event(
-                    source=self.name,
-                    source_id=f"{ac_no}-{sno}" if sno not in ("", "0") else ac_no,
-                    kind="construction",
-                    title=title or ac_no,
-                    lat=loc[0] if loc else None,
-                    lon=loc[1] if loc else None,
-                    address=f"{addr} {positions_text}".strip(),
-                    start=parse_date(_get(rec, "Cb_Da", default=None)),
-                    end=parse_date(_get(rec, "Ce_Da", default=None)),
-                    time_window=str(_get(rec, "Co_Ti")),
-                    blocks_traffic=parse_bool(_get(rec, "IsBlock", default=None)),
-                    agency=str(_get(rec, "App_Name")),
-                    purpose=purpose,
-                    url=DATASET_PAGE,
-                    shapes=shapes,
-                    extra={
-                        "district": district,
-                        "app_mode": APP_MODE.get(app_mode, app_mode),
-                        "length_m": _get(rec, "DLen"),
-                        "long_term": parse_bool(_get(rec, "IsStay", default=None)),
-                        "delay_reason": _get(rec, "DType"),
-                        "work_items": _get(rec, "WItem"),
-                        "plan_b": _get(rec, "PlanB"),
-                        "contractor": _get(rec, "Tc_Na"),
-                        "contact": _get(rec, "Tc_Ma"),
-                        "contact_tel": _get(rec, "Tc_Tl"),
-                        "reported_at": _get(rec, "AppTime"),
-                    },
-                )
-            )
-        return events
+            if isinstance(positions, list):
+                shapes.extend(_shapes(positions))
+            elif isinstance(positions, str) and positions:
+                positions_text.append(positions)
+            if loc:
+                locs.append(loc)
+            s, e = parse_date(_get(rec, "Cb_Da", default=None)), parse_date(_get(rec, "Ce_Da", default=None))
+            if s:
+                starts.append(s)
+            if e:
+                ends.append(e)
+            blocks.append(parse_bool(_get(rec, "IsBlock", default=None)))
+            addrs.append(str(_get(rec, "Addr")))
+            windows.append(str(_get(rec, "Co_Ti")))
+        loc = centroid(p for s in shapes for p in s) or centroid(locs)
+        addr = "；".join(_dedupe(addrs))
+        district = str(_get(first, "C_Name"))
+        if district and not district.endswith("區"):
+            district += "區"
+        purpose = str(_get(first, "NPurp"))
+        app_mode = str(_get(first, "AppMode"))
+        title = addr if not district or addr.startswith(district) else f"{district}{addr}"
+        if purpose:
+            title = f"{title}（{purpose}）"
+        if len(title) > 90:
+            title = title[:88] + "…"
+        blocks_traffic = True if any(b is True for b in blocks) else (False if any(b is False for b in blocks) else None)
+        return Event(
+            source=self.name,
+            source_id=ac_no,
+            kind="construction",
+            title=title or ac_no,
+            lat=loc[0] if loc else None,
+            lon=loc[1] if loc else None,
+            address=" ".join([addr] + _dedupe(positions_text)).strip(),
+            start=min(starts) if starts else None,
+            end=max(ends) if ends else None,
+            time_window=next((w for w in windows if w), ""),
+            blocks_traffic=blocks_traffic,
+            agency=str(_get(first, "App_Name")),
+            purpose=purpose,
+            url=DATASET_PAGE,
+            shapes=shapes,
+            extra={
+                "district": district,
+                "app_mode": APP_MODE.get(app_mode, app_mode),
+                "segments": len(recs),
+                "length_m": _get(first, "DLen"),
+                "long_term": parse_bool(_get(first, "IsStay", default=None)),
+                "delay_reason": _get(first, "DType"),
+                "work_items": _get(first, "WItem"),
+                "plan_b": _get(first, "PlanB"),
+                "contractor": _get(first, "Tc_Na"),
+                "contact": _get(first, "Tc_Ma"),
+                "contact_tel": _get(first, "Tc_Tl"),
+                "reported_at": _get(first, "AppTime"),
+            },
+        )
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for it in items:
+        it = (it or "").strip()
+        if it and it not in seen:
+            seen.add(it)
+            out.append(it)
+    return out

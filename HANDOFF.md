@@ -12,7 +12,8 @@
   要 cookie、viewstate、POST 翻頁；原本的 HTML 解析還會被巢狀分頁表格吃掉。改成「列表 HTML（看未來）＋
   地圖 API `caseMap3.ashx`（多邊形）」依案號合併。活動管制裡的里長／議員要求、文資管制區等長年規定會濾掉。
 - SQLite 加 `shapes` 欄位，舊資料庫會自動 `ALTER TABLE`。
-- 測試 41 → 65，fixture 全部換成真實資料擷取（`tests/fixtures/*.real.json`，聯絡人已去識別）。
+- 今日施工依核備文號合併分段（原本一件工程 28 段就推 28 次），丟掉「全市APP測試」假資料；一則訊息最多列 15 件。
+- 測試 41 → 66，fixture 全部換成真實資料擷取（`tests/fixtures/*.real.json`，聯絡人已去識別）。
 
 抓取時間：施工 JSON 幾秒；dig.taipei 預設 7 天、三種模式約 5–10 分鐘（臨時使用道路一天上百件，
 每件逐案抓幾何約 1 秒）。不要臨時使用道路就設 `ROADCHECK_EXT_MODES=EXTREST,RALLY`。
