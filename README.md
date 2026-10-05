@@ -85,11 +85,11 @@ dig.taipei 的集會／臨時使用道路列表則可以看到未來（抓取時
 
 ### 地址轉座標（TGOS）
 
-1. 到 <https://www.tgos.tw> 註冊，進「TGOS MAP API」申請應用程式，拿 **APPID** 與 **APIKey**。
+1. 到 <https://www.tgos.tw>（要有 `www`，光打 `tgos.tw` 連不上）註冊，進「TGOS MAP API」申請應用程式，拿 **APPID** 與 **APIKey**。開發文件在 <https://api.tgos.tw/TGOS_MAP_API/docs/site/web/Intro>，門牌定位服務說明頁 <https://addr.tgos.tw/addrws/v30/QueryAddr.asmx?op=QueryAddr>。
 2. 設定 `TGOS_APP_ID`、`TGOS_API_KEY`。金鑰會綁定申請時填的網址，若查詢回權限錯誤，把那個網址設到 `TGOS_REFERER`。
 3. `roadcheck geocode "台北市西園路二段255號"` 確認能查到。
 
-用的是「全國門牌地址定位服務」`addr.tgos.tw/addrws/v40/QueryAddr.asmx`，模糊比對開啟（門牌不存在時給最接近的）。
+用的是「全國門牌地址定位服務」`addr.tgos.tw/addrws/v30/QueryAddr.asmx`，模糊比對開啟（門牌不存在時給最接近的）。
 沒寫縣市時預設台北市。實作在 `roadcheck/geocode.py`；開發環境連不到 TGOS，參數與回傳格式是依文件寫的，第一次有金鑰時請實測。
 
 ## 架構

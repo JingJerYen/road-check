@@ -1,10 +1,10 @@
 """地址轉座標：內政部 TGOS「全國門牌地址定位服務」。
 
-申請金鑰：https://www.tgos.tw → 註冊 → 「TGOS MAP API」→ 新增應用程式 → 取得 APPID 與 APIKey。
+申請金鑰：https://www.tgos.tw （注意要有 www，光打 tgos.tw 沒有 DNS）→ 註冊 → 「TGOS MAP API」→ 新增應用程式 → 取得 APPID 與 APIKey。
 環境變數：
   TGOS_APP_ID、TGOS_API_KEY   必填
   TGOS_REFERER               選填；TGOS 的金鑰綁定申請時填的網址，若回「權限不足」把那個網址設在這裡
-  TGOS_QUERYADDR_URL         選填；預設 https://addr.tgos.tw/addrws/v40/QueryAddr.asmx/QueryAddr
+  TGOS_QUERYADDR_URL         選填；預設 https://addr.tgos.tw/addrws/v30/QueryAddr.asmx/QueryAddr
 
 服務是 ASP.NET Web Service，用 GET 帶參數，回傳 XML 包著一段 JSON：
   <string xmlns="http://tempuri.org/">{"Info":[{"IsSuccess":"True",...}],"AddressList":[{"FULL_ADDR":...,"X":121.5,"Y":25.0}]}</string>
@@ -26,7 +26,7 @@ from typing import Callable, Optional
 
 from .geo import LatLon, looks_like_twd97, twd97_to_wgs84
 
-DEFAULT_URL = "https://addr.tgos.tw/addrws/v40/QueryAddr.asmx/QueryAddr"
+DEFAULT_URL = "https://addr.tgos.tw/addrws/v30/QueryAddr.asmx/QueryAddr"
 USER_AGENT = "roadcheck/0.2 (+https://github.com/JingJerYen/road-check)"
 
 

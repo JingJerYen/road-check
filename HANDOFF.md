@@ -35,7 +35,7 @@ github.com
 
 ## 1. TGOS 地址轉座標實測（還沒做）
 
-- [ ] 到 <https://www.tgos.tw> 申請 TGOS MAP API 應用程式，拿 APPID／APIKey，設 `TGOS_APP_ID`、`TGOS_API_KEY`。
+- [ ] 到 <https://www.tgos.tw>（要有 www）申請 TGOS MAP API 應用程式，拿 APPID／APIKey，設 `TGOS_APP_ID`、`TGOS_API_KEY`。
 - [ ] 網路白名單加 `addr.tgos.tw`。
 - [ ] `python3 -m roadcheck geocode "台北市西園路二段255號"`。要確認：
   - GET `QueryAddr.asmx/QueryAddr` 帶 oAPPId/oAPIKey/oAddress/oSRS=EPSG:4326/oResultDataType=JSON 等參數是否被接受；
