@@ -25,6 +25,7 @@
 ```
 tpnco.blob.core.windows.net
 dig.taipei
+addr.tgos.tw
 data.taipei
 api.line.me
 pypi.org
@@ -32,20 +33,32 @@ files.pythonhosted.org
 github.com
 ```
 
-## 1. LINE 實測（還沒做）
+## 1. TGOS 地址轉座標實測（還沒做）
+
+- [ ] 到 <https://www.tgos.tw> 申請 TGOS MAP API 應用程式，拿 APPID／APIKey，設 `TGOS_APP_ID`、`TGOS_API_KEY`。
+- [ ] 網路白名單加 `addr.tgos.tw`。
+- [ ] `python3 -m roadcheck geocode "台北市西園路二段255號"`。要確認：
+  - GET `QueryAddr.asmx/QueryAddr` 帶 oAPPId/oAPIKey/oAddress/oSRS=EPSG:4326/oResultDataType=JSON 等參數是否被接受；
+    若只接受 POST 或 SOAP，改 `roadcheck/geocode.py` 的 `_http_fetch`／`query()`。
+  - 回傳是 XML 包 JSON 還是純 JSON（`parse_queryaddr_response` 兩種都吃）。
+  - `AddressList` 的欄位名（FULL_ADDR／ROAD／SECTION／X／Y）；X/Y 是否真的是經緯度（是 TWD97 也會自動轉）。
+  - 權限錯誤時是否需要 `TGOS_REFERER`。
+- [ ] 把一份真實回應存成 `tests/test_geocode.py` 的 `SAMPLE_XML`。
+
+## 2. LINE 實測（還沒做）
 
 - [ ] 建 Messaging API channel，設 `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`。
 - [ ] `python3 -m roadcheck serve-line`，用 ngrok 或 Cloudflare Tunnel 暴露，填 Webhook URL，開 "Use webhook"。
-- [ ] 加好友 → 傳位置 → 收到「已訂閱」。
+- [ ] 加好友 → 傳位置 → 收到「已訂閱」；傳「地址 台北市西園路二段255號」也要能訂閱。
 - [ ] `python3 -m roadcheck run --dry-run --horizon-days 7` 看比對結果；`run` 真推。
 
-## 2. 排程
+## 3. 排程
 
 ```cron
 0 7 * * * cd /path/to/road-check && ROADCHECK_DB=/path/to/roadcheck.sqlite3 LINE_CHANNEL_ACCESS_TOKEN=... python3 -m roadcheck run --horizon-days 7 >> run.log 2>&1
 ```
 
-## 3. 已知限制與可以再做的事
+## 4. 已知限制與可以再做的事
 
 - **活動管制的過濾**靠列表的「管制原因」欄（里長要求、議員要求、文資管制區域、配合管制）＋「超過 90 天」規則。
   地圖 API 本身沒有原因欄位，列表掛掉時只剩天數規則。

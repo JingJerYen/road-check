@@ -9,6 +9,7 @@
   半徑 <公尺>             -> 更改最近一筆訂閱的半徑
   路線 lat,lon;lat,lon;…  -> 建立路線訂閱
   路名 忠孝東路四段 復興南路 -> 替最近一筆訂閱加上路名（給沒座標的封路資料比對用）
+  地址 台北市西園路二段255號 -> 用 TGOS 把地址轉成座標後訂閱（需 TGOS_APP_ID / TGOS_API_KEY）
   幫助                    -> 說明
 
 環境變數：
@@ -27,7 +28,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Callable
 
 from .geo import parse_points
-from .models import Subscription
+from .geocode import GeocodeError, TgosGeocoder, get_geocoder
+from .models import Subscription, extract_roads
 from .notify import LineNotifier
 from .store import Store
 
@@ -41,6 +43,7 @@ HELP = (
     "・半徑 200：把最近一筆改成 200 公尺\n"
     "・路線 25.04,121.54;25.05,121.55：訂閱一條路線\n"
     "・路名 忠孝東路四段 復興南路：加上路名，沒座標的封路公告也能比對\n"
+    "・地址 台北市西園路二段255號：用門牌地址訂閱\n"
     "・幫助：看這段說明"
 )
 
@@ -53,9 +56,14 @@ def verify_signature(secret: str, body: bytes, signature: str) -> bool:
 class CommandHandler:
     """把 LINE 事件轉成對 Store 的操作，回傳要回覆的文字。與 HTTP 無關，方便測試。"""
 
-    def __init__(self, store: Store, default_radius_m: float = 100.0):
+    def __init__(self, store: Store, default_radius_m: float = 100.0, geocoder: TgosGeocoder | None = None):
         self.store = store
         self.default_radius_m = default_radius_m
+        self._geocoder = geocoder
+
+    @property
+    def geocoder(self) -> TgosGeocoder:
+        return self._geocoder or get_geocoder()
 
     def handle_event(self, event: dict) -> str | None:
         etype = event.get("type")
@@ -89,6 +97,8 @@ class CommandHandler:
         if not parts:
             return HELP
         cmd, args = parts[0], parts[1:]
+        if cmd.startswith("地址") and cmd != "地址":       # 「地址台北市…」沒空格也接受
+            cmd, args = "地址", [cmd[2:], *args]
         if cmd in ("幫助", "help", "說明", "?"):
             return HELP
         if cmd in ("列表", "list", "清單"):
@@ -124,6 +134,21 @@ class CommandHandler:
                 return "路線格式：路線 25.04,121.54;25.05,121.55（至少兩點）"
             self.store.add_subscription(sub)
             return f"✅ 已訂閱路線 #{sub.id}，線兩側 {sub.radius_m:.0f} 公尺。"
+        if cmd in ("地址", "address", "addr"):
+            address = "".join(args) if args else text.strip()[2:].strip()
+            if not address:
+                return "請在「地址」後面接門牌，例如「地址 台北市西園路二段255號」。"
+            try:
+                g = self.geocoder.geocode(address)
+            except GeocodeError as e:
+                log.warning("geocode failed for %r: %s", address, e)
+                return f"找不到這個地址的座標（{e}）。你也可以直接傳「位置」給我。"
+            roads = sorted(extract_roads(g.road or g.full_address or address))
+            sub = Subscription(name=(g.full_address or address)[:40], kind="point", points=[g.location],
+                               radius_m=self.default_radius_m, roads=roads, channel="line", channel_target=user_id)
+            self.store.add_subscription(sub)
+            return (f"✅ 已訂閱 #{sub.id}「{sub.name}」\n座標 {g.lat:.5f}, {g.lon:.5f}，半徑 {sub.radius_m:.0f} 公尺"
+                    + (f"，路名 {'、'.join(roads)}" if roads else "") + "。\n位置不對的話傳「刪除 %d」再重傳位置。" % sub.id)
         if cmd in ("路名", "roads") and args:
             sub = self._latest(user_id)
             if sub is None:

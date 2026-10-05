@@ -71,3 +71,36 @@ class LineBotTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LineBotAddressTests(unittest.TestCase):
+    def setUp(self):
+        from roadcheck.geocode import TgosGeocoder
+        from tests.test_geocode import SAMPLE_XML, SAMPLE_EMPTY, FakeFetch
+
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
+        self.tmp.close()
+        self.store = Store(self.tmp.name)
+        self.ok = TgosGeocoder(app_id="a", api_key="b", fetch=FakeFetch(SAMPLE_XML))
+        self.empty = TgosGeocoder(app_id="a", api_key="b", fetch=FakeFetch(SAMPLE_EMPTY))
+
+    def tearDown(self):
+        self.store.close()
+        os.unlink(self.tmp.name)
+
+    def test_address_command_subscribes(self):
+        h = CommandHandler(self.store, geocoder=self.ok)
+        reply = h.handle_event(text_event("地址 台北市西園路二段255號"))
+        self.assertIn("已訂閱", reply)
+        self.assertIn("25.02730, 121.49390", reply)
+        sub = self.store.list_subscriptions(channel_target="U1")[0]
+        self.assertEqual(sub.points, [(25.0273, 121.4939)])
+        self.assertEqual(sub.roads, ["西園路2段"])
+        self.assertTrue(sub.name.endswith("西園路二段255號"))
+
+    def test_address_without_space_and_not_found(self):
+        h = CommandHandler(self.store, geocoder=self.empty)
+        reply = h.handle_event(text_event("地址台北市不存在路1號"))
+        self.assertIn("找不到", reply)
+        self.assertEqual(self.store.list_subscriptions(channel_target="U1"), [])
+        self.assertIn("請在「地址」後面", h.handle_event(text_event("地址")))

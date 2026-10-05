@@ -1,6 +1,8 @@
 """roadcheck 命令列。
 
   roadcheck subscribe point --name 家 --lat 25.04 --lon 121.54 --radius 100 [--line-user Uxxx]
+  roadcheck subscribe point --name 停車 --address "台北市西園路二段255號"   # 用 TGOS 轉座標
+  roadcheck geocode "台北市西園路二段255號"            # 只查座標
   roadcheck subscribe route --name 通勤 --points "25.04,121.54;25.05,121.55" [--polyline <encoded>]
   roadcheck list
   roadcheck fetch [--source NAME] [--from-file PATH] [--dump]
@@ -17,8 +19,9 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .geo import decode_polyline, parse_points
+from .geocode import GeocodeError, get_geocoder
 from .matcher import match_all
-from .models import Subscription
+from .models import Subscription, extract_roads
 from .notify import ConsoleNotifier, format_digest, get_notifier, group_by_subscription
 from .sources import ALL_SOURCES, SourceError
 from .store import DEFAULT_DB, Store
@@ -27,8 +30,21 @@ FIXTURE_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 
 
 def cmd_subscribe(args, store: Store) -> int:
+    roads = list(args.roads or [])
     if args.kind == "point":
-        pts = [(args.lat, args.lon)]
+        if args.address:
+            try:
+                g = get_geocoder().geocode(args.address)
+            except GeocodeError as e:
+                print(f"地址轉座標失敗：{e}", file=sys.stderr)
+                return 1
+            pts = [g.location]
+            if not roads:
+                roads = sorted(extract_roads(g.road or g.full_address or args.address))
+            print(f"TGOS：{g.full_address or args.address} -> {g.lat:.5f}, {g.lon:.5f}"
+                  + (f"（路名 {'、'.join(roads)}）" if roads else ""))
+        else:
+            pts = [(args.lat, args.lon)]
     else:
         if args.polyline:
             pts = decode_polyline(args.polyline)
@@ -40,11 +56,26 @@ def cmd_subscribe(args, store: Store) -> int:
     channel = "line" if args.line_user else "console"
     sub = Subscription(
         name=args.name, kind=args.kind, points=pts, radius_m=args.radius,
-        roads=args.roads or [], channel=channel, channel_target=args.line_user or "",
+        roads=roads, channel=channel, channel_target=args.line_user or "",
         only_blocking=args.only_blocking,
     )
     store.add_subscription(sub)
     print(f"added subscription #{sub.id} {sub.name} ({sub.kind}, {len(pts)} pts, {sub.radius_m:.0f} m, {channel})")
+    return 0
+
+
+def cmd_geocode(args, store: Store) -> int:
+    try:
+        results = get_geocoder().query(args.address, max_results=args.limit)
+    except GeocodeError as e:
+        print(f"地址轉座標失敗：{e}", file=sys.stderr)
+        return 1
+    if not results:
+        print("找不到結果", file=sys.stderr)
+        return 1
+    for g in results:
+        roads = "、".join(sorted(extract_roads(g.road or g.full_address)))
+        print(f"{g.lat:.6f},{g.lon:.6f}  {g.full_address}" + (f"  [{roads}]" if roads else ""))
     return 0
 
 
@@ -177,6 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--name", required=True)
     s.add_argument("--lat", type=float)
     s.add_argument("--lon", type=float)
+    s.add_argument("--address", help="門牌地址，用 TGOS 轉成座標（需 TGOS_APP_ID / TGOS_API_KEY）")
     s.add_argument("--points", help='"lat,lon;lat,lon;..."')
     s.add_argument("--polyline", help="Google encoded polyline")
     s.add_argument("--radius", type=float, default=None, help="公尺（點預設 100，路線預設 50）")
@@ -186,6 +218,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_subscribe)
 
     sp.add_parser("list", help="列出訂閱與事件數").set_defaults(func=cmd_list)
+
+    g = sp.add_parser("geocode", help="地址轉座標（TGOS）")
+    g.add_argument("address")
+    g.add_argument("--limit", type=int, default=5)
+    g.set_defaults(func=cmd_geocode)
 
     f = sp.add_parser("fetch", help="抓資料存進資料庫")
     f.add_argument("--source", choices=list(ALL_SOURCES))
@@ -215,8 +252,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     if args.cmd == "subscribe" and args.radius is None:
         args.radius = 100.0 if args.kind == "point" else 50.0
-    if args.cmd == "subscribe" and args.kind == "point" and (args.lat is None or args.lon is None):
-        print("point needs --lat and --lon", file=sys.stderr)
+    if args.cmd == "subscribe" and args.kind == "point" and not args.address and (args.lat is None or args.lon is None):
+        print("point needs --lat and --lon, or --address", file=sys.stderr)
         return 2
     store = Store(args.db)
     try:
