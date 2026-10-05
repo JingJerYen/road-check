@@ -25,7 +25,7 @@
 ```
 tpnco.blob.core.windows.net
 dig.taipei
-addr.tgos.tw
+maps.googleapis.com
 data.taipei
 api.line.me
 pypi.org
@@ -33,17 +33,17 @@ files.pythonhosted.org
 github.com
 ```
 
-## 1. TGOS 地址轉座標實測（還沒做）
+## 1. 地址轉座標實測（還沒做）
 
-- [ ] 到 <https://www.tgos.tw>（要有 www）申請 TGOS MAP API 應用程式，拿 APPID／APIKey，設 `TGOS_APP_ID`、`TGOS_API_KEY`。
-- [ ] 網路白名單加 `addr.tgos.tw`。
-- [ ] `python3 -m roadcheck geocode "台北市西園路二段255號"`。要確認：
-  - GET `QueryAddr.asmx/QueryAddr` 帶 oAPPId/oAPIKey/oAddress/oSRS=EPSG:4326/oResultDataType=JSON 等參數是否被接受；
-    若只接受 POST 或 SOAP，改 `roadcheck/geocode.py` 的 `_http_fetch`／`query()`。
-  - 回傳是 XML 包 JSON 還是純 JSON（`parse_queryaddr_response` 兩種都吃）。
-  - `AddressList` 的欄位名（FULL_ADDR／ROAD／SECTION／X／Y）；X/Y 是否真的是經緯度（是 TWD97 也會自動轉）。
-  - 權限錯誤時是否需要 `TGOS_REFERER`。
-- [ ] 把一份真實回應存成 `tests/test_geocode.py` 的 `SAMPLE_XML`。
+預設 Google Geocoding API。開發環境已確認 `maps.googleapis.com` 連得到、無效金鑰會回
+`{"status":"REQUEST_DENIED","error_message":...}`，正常回應的結構依官方文件寫在 `tests/test_geocode.py`。
+
+- [ ] Google Cloud Console 啟用 Geocoding API、建立金鑰（限制只能用 Geocoding API），設 `GOOGLE_MAPS_API_KEY`。
+- [ ] `python3 -m roadcheck geocode "台北市西園路二段255號"`，應該回 25.027x, 121.493x 附近。
+- [ ] 把一份真實回應換進 `tests/test_geocode.py` 的 `GOOGLE_OK`。
+
+TGOS（`ROADCHECK_GEOCODER=tgos`）保留但未實測，申請對象沒有個人；若日後要用，確認項目同上：
+GET 參數是否被接受、XML 包 JSON 的格式、`AddressList` 欄位名、是否需要 `TGOS_REFERER`。
 
 ## 2. LINE 實測（還沒做）
 

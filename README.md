@@ -18,7 +18,7 @@
 | 通知去重（同事件不重複推，日期變更會重推） | ✅ 完成，有測試 |
 | LINE Messaging API 推播 | ✅ 完成，需 token 實測 |
 | LINE webhook（傳位置即訂閱） | ✅ 完成，需 channel 實測 |
-| 地址轉座標（TGOS 全國門牌地址定位） | ✅ 完成，有測試，**需金鑰實測** |
+| 地址轉座標（Google Geocoding API；TGOS 備選） | ✅ 完成，有測試，Google 端點已確認可連，需金鑰實測 |
 | 排程 | 用 cron 跑 `roadcheck run` |
 
 還沒做的事見 [HANDOFF.md](HANDOFF.md)。
@@ -27,14 +27,14 @@
 
 ```bash
 git clone https://github.com/JingJerYen/road-check && cd road-check
-python3 -m unittest discover -s tests      # 80 tests，離線
+python3 -m unittest discover -s tests      # 85 tests，離線
 python3 -m roadcheck demo                   # 用真實資料的樣本離線跑一遍，看通知長什麼樣
 python3 -m roadcheck fetch                  # 真的去抓（dig.taipei 要翻頁＋逐案抓幾何，約 5–10 分鐘）
 ```
 
 `pip install -e .` 之後可以直接用 `roadcheck` 指令，不裝也能用 `python3 -m roadcheck`。
 
-需要能連到：`tpnco.blob.core.windows.net`（施工 JSON）、`dig.taipei`、`api.line.me`，用地址訂閱還要 `addr.tgos.tw`。
+需要能連到：`tpnco.blob.core.windows.net`（施工 JSON）、`dig.taipei`、`api.line.me`，用地址訂閱還要 `maps.googleapis.com`（或 TGOS 的 `addr.tgos.tw`）。
 
 ## 使用
 
@@ -42,7 +42,7 @@ python3 -m roadcheck fetch                  # 真的去抓（dig.taipei 要翻�
 # 訂閱停車位置（半徑 100 m），並加上路名讓沒座標的公告也能比對
 roadcheck subscribe point --name 公司停車 --lat 25.0418 --lon 121.5440 --radius 100 --roads 忠孝東路四段 復興南路
 
-# 用門牌地址訂閱：TGOS 轉成座標，路名自動從地址帶入（需 TGOS_APP_ID / TGOS_API_KEY）
+# 用門牌地址訂閱：Google Geocoding 轉成座標，路名自動從地址帶入（需 GOOGLE_MAPS_API_KEY）
 roadcheck subscribe point --name 停車 --address "台北市西園路二段255號"
 roadcheck geocode "台北市西園路二段255號"        # 只查座標，確認金鑰能用
 
@@ -83,14 +83,20 @@ dig.taipei 的集會／臨時使用道路列表則可以看到未來（抓取時
 
 免費方案每月 200 則推播，webhook 回覆走 reply 不計費。LINE Notify 已停止服務，這裡用的是 Messaging API。
 
-### 地址轉座標（TGOS）
+### 地址轉座標
 
-1. 到 <https://www.tgos.tw>（要有 `www`，光打 `tgos.tw` 連不上）註冊，進「TGOS MAP API」申請應用程式，拿 **APPID** 與 **APIKey**。開發文件在 <https://api.tgos.tw/TGOS_MAP_API/docs/site/web/Intro>，門牌定位服務說明頁 <https://addr.tgos.tw/addrws/v30/QueryAddr.asmx?op=QueryAddr>。
-2. 設定 `TGOS_APP_ID`、`TGOS_API_KEY`。金鑰會綁定申請時填的網址，若查詢回權限錯誤，把那個網址設到 `TGOS_REFERER`。
+預設用 **Google Geocoding API**（個人可申請，每月有免費額度）：
+
+1. Google Cloud Console → 建立專案 → 啟用 **Geocoding API** → 建立 API 金鑰，並把金鑰限制成只能用 Geocoding API。
+2. `export GOOGLE_MAPS_API_KEY=...`
 3. `roadcheck geocode "台北市西園路二段255號"` 確認能查到。
 
-用的是「全國門牌地址定位服務」`addr.tgos.tw/addrws/v30/QueryAddr.asmx`，模糊比對開啟（門牌不存在時給最接近的）。
-沒寫縣市時預設台北市。實作在 `roadcheck/geocode.py`；開發環境連不到 TGOS，參數與回傳格式是依文件寫的，第一次有金鑰時請實測。
+結果限制在台灣（`region=tw`、`components=country:TW`），回中文地址；只對到行政區或整條路的粗略結果會被丟掉，
+免得把整條路的中心當成停車位。沒寫縣市時預設台北市。
+
+備選是內政部 **TGOS 全國門牌位置比對服務**（`ROADCHECK_GEOCODER=tgos`，`TGOS_APP_ID`／`TGOS_API_KEY`），
+但它的申請對象只有機關、法人與公司行號，而且開發環境連不到 `addr.tgos.tw`，那段程式未實測。
+兩家都在 `roadcheck/geocode.py`，加別家只要實作 `Geocoder.query()`。
 
 ## 架構
 
@@ -104,7 +110,7 @@ roadcheck/
   matcher.py   訂閱 × 事件 → Match（有 shapes 對形狀算距離，否則對代表點，都沒有就比路名）
   notify.py    ConsoleNotifier / LineNotifier，訊息格式
   linebot.py   LINE webhook 與指令處理（CommandHandler 與 HTTP 分離，可單測）
-  geocode.py   TGOS 地址轉座標
+  geocode.py   地址轉座標（Google Geocoding API；TGOS 備選）
   cli.py       命令列
 tests/fixtures 從真實資料擷取並裁短的樣本（聯絡人已去識別），離線測試用
 ```

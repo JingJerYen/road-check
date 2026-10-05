@@ -142,3 +142,95 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Google Geocoding API 的回應（結構依官方文件；錯誤格式已在開發環境實際打過確認）
+GOOGLE_OK = '''{
+  "results": [{
+    "address_components": [
+      {"long_name": "255號", "short_name": "255號", "types": ["street_number"]},
+      {"long_name": "西園路二段", "short_name": "西園路二段", "types": ["route"]},
+      {"long_name": "萬華區", "short_name": "萬華區", "types": ["administrative_area_level_2", "political"]},
+      {"long_name": "台北市", "short_name": "台北市", "types": ["administrative_area_level_1", "political"]},
+      {"long_name": "台灣", "short_name": "TW", "types": ["country", "political"]},
+      {"long_name": "108", "short_name": "108", "types": ["postal_code"]}
+    ],
+    "formatted_address": "108台灣台北市萬華區西園路二段255號",
+    "geometry": {"location": {"lat": 25.0272, "lng": 121.4938}, "location_type": "ROOFTOP",
+                 "viewport": {"northeast": {"lat": 25.0285, "lng": 121.4951}, "southwest": {"lat": 25.0258, "lng": 121.4924}}},
+    "place_id": "ChIJx", "plus_code": {"compound_code": "2FGV+VG 台北市萬華區"}, "types": ["street_address"]
+  }],
+  "status": "OK"
+}'''
+GOOGLE_APPROX = '''{"results": [{"address_components": [{"long_name": "萬華區", "types": ["administrative_area_level_2"]}],
+  "formatted_address": "台灣台北市萬華區", "geometry": {"location": {"lat": 25.03, "lng": 121.5}, "location_type": "APPROXIMATE"},
+  "types": ["administrative_area_level_2"]}], "status": "OK"}'''
+GOOGLE_ZERO = '{"results": [], "status": "ZERO_RESULTS"}'
+GOOGLE_DENIED = '{"error_message": "The provided API key is invalid. ", "results": [], "status": "REQUEST_DENIED"}'
+
+
+class GoogleGeocoderTests(unittest.TestCase):
+    def make(self, text, key="K"):
+        from roadcheck.geocode import GoogleGeocoder
+
+        self.fetch = FakeFetch(text)
+        return GoogleGeocoder(api_key=key, fetch=self.fetch)
+
+    def test_ok_result(self):
+        r = self.make(GOOGLE_OK).geocode("台北市西園路二段255號")
+        self.assertEqual((r.lat, r.lon), (25.0272, 121.4938))
+        self.assertEqual(r.road, "西園路二段")
+        self.assertEqual(r.town, "萬華區")
+        self.assertEqual(r.county, "台北市")
+        self.assertEqual(r.full_address, "108台灣台北市萬華區西園路二段255號")
+        url, _ = self.fetch.calls[0]
+        self.assertTrue(url.startswith("https://maps.googleapis.com/maps/api/geocode/json?"))
+        self.assertIn("key=K", url)
+        self.assertIn("region=tw", url)
+        self.assertIn("components=country%3ATW", url)
+        self.assertIn("language=zh-TW", url)
+
+    def test_approximate_results_are_rejected(self):
+        with self.assertRaises(GeocodeError) as ctx:
+            self.make(GOOGLE_APPROX).geocode("台北市萬華區")
+        self.assertIn("找不到", str(ctx.exception))
+
+    def test_zero_results_and_denied(self):
+        self.assertEqual(self.make(GOOGLE_ZERO).query("x"), [])
+        with self.assertRaises(GeocodeError) as ctx:
+            self.make(GOOGLE_DENIED).geocode("x")
+        self.assertIn("REQUEST_DENIED", str(ctx.exception))
+        self.assertIn("invalid", str(ctx.exception))
+
+    def test_missing_key(self):
+        with self.assertRaises(GeocodeError) as ctx:
+            self.make(GOOGLE_OK, key="").geocode("x")
+        self.assertIn("GOOGLE_MAPS_API_KEY", str(ctx.exception))
+
+
+class ProviderSelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.saved = {k: os.environ.pop(k, None) for k in
+                      ("ROADCHECK_GEOCODER", "GOOGLE_MAPS_API_KEY", "TGOS_APP_ID", "TGOS_API_KEY")}
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_defaults_to_google_and_falls_back_to_tgos_keys(self):
+        from roadcheck.geocode import GoogleGeocoder, TgosGeocoder, make_geocoder
+
+        self.assertIsInstance(make_geocoder(), GoogleGeocoder)        # 沒金鑰：Google（呼叫時會說缺金鑰）
+        os.environ["TGOS_APP_ID"] = "a"
+        os.environ["TGOS_API_KEY"] = "b"
+        self.assertIsInstance(make_geocoder(), TgosGeocoder)          # 只有 TGOS 金鑰
+        os.environ["GOOGLE_MAPS_API_KEY"] = "k"
+        self.assertIsInstance(make_geocoder(), GoogleGeocoder)        # 兩個都有：Google 優先
+        os.environ["ROADCHECK_GEOCODER"] = "tgos"
+        self.assertIsInstance(make_geocoder(), TgosGeocoder)          # 明確指定
+        os.environ["ROADCHECK_GEOCODER"] = "bing"
+        with self.assertRaises(GeocodeError):
+            make_geocoder()

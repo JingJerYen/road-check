@@ -9,7 +9,7 @@
   半徑 <公尺>             -> 更改最近一筆訂閱的半徑
   路線 lat,lon;lat,lon;…  -> 建立路線訂閱
   路名 忠孝東路四段 復興南路 -> 替最近一筆訂閱加上路名（給沒座標的封路資料比對用）
-  地址 台北市西園路二段255號 -> 用 TGOS 把地址轉成座標後訂閱（需 TGOS_APP_ID / TGOS_API_KEY）
+  地址 台北市西園路二段255號 -> 地址轉座標後訂閱（需 GOOGLE_MAPS_API_KEY，或 TGOS 金鑰）
   幫助                    -> 說明
 
 環境變數：
@@ -28,7 +28,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Callable
 
 from .geo import parse_points
-from .geocode import GeocodeError, TgosGeocoder, get_geocoder
+from .geocode import GeocodeError, Geocoder, get_geocoder
 from .models import Subscription, extract_roads
 from .notify import LineNotifier
 from .store import Store
@@ -56,13 +56,13 @@ def verify_signature(secret: str, body: bytes, signature: str) -> bool:
 class CommandHandler:
     """把 LINE 事件轉成對 Store 的操作，回傳要回覆的文字。與 HTTP 無關，方便測試。"""
 
-    def __init__(self, store: Store, default_radius_m: float = 100.0, geocoder: TgosGeocoder | None = None):
+    def __init__(self, store: Store, default_radius_m: float = 100.0, geocoder: Geocoder | None = None):
         self.store = store
         self.default_radius_m = default_radius_m
         self._geocoder = geocoder
 
     @property
-    def geocoder(self) -> TgosGeocoder:
+    def geocoder(self) -> Geocoder:
         return self._geocoder or get_geocoder()
 
     def handle_event(self, event: dict) -> str | None:

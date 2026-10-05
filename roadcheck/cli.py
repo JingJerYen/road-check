@@ -1,7 +1,7 @@
 """roadcheck 命令列。
 
   roadcheck subscribe point --name 家 --lat 25.04 --lon 121.54 --radius 100 [--line-user Uxxx]
-  roadcheck subscribe point --name 停車 --address "台北市西園路二段255號"   # 用 TGOS 轉座標
+  roadcheck subscribe point --name 停車 --address "台北市西園路二段255號"   # 地址轉座標（Google）
   roadcheck geocode "台北市西園路二段255號"            # 只查座標
   roadcheck subscribe route --name 通勤 --points "25.04,121.54;25.05,121.55" [--polyline <encoded>]
   roadcheck list
@@ -41,7 +41,7 @@ def cmd_subscribe(args, store: Store) -> int:
             pts = [g.location]
             if not roads:
                 roads = sorted(extract_roads(g.road or g.full_address or args.address))
-            print(f"TGOS：{g.full_address or args.address} -> {g.lat:.5f}, {g.lon:.5f}"
+            print(f"{get_geocoder().name}：{g.full_address or args.address} -> {g.lat:.5f}, {g.lon:.5f}"
                   + (f"（路名 {'、'.join(roads)}）" if roads else ""))
         else:
             pts = [(args.lat, args.lon)]
@@ -208,7 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--name", required=True)
     s.add_argument("--lat", type=float)
     s.add_argument("--lon", type=float)
-    s.add_argument("--address", help="門牌地址，用 TGOS 轉成座標（需 TGOS_APP_ID / TGOS_API_KEY）")
+    s.add_argument("--address", help="門牌地址，轉成座標（需 GOOGLE_MAPS_API_KEY；或 TGOS 金鑰）")
     s.add_argument("--points", help='"lat,lon;lat,lon;..."')
     s.add_argument("--polyline", help="Google encoded polyline")
     s.add_argument("--radius", type=float, default=None, help="公尺（點預設 100，路線預設 50）")
@@ -219,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp.add_parser("list", help="列出訂閱與事件數").set_defaults(func=cmd_list)
 
-    g = sp.add_parser("geocode", help="地址轉座標（TGOS）")
+    g = sp.add_parser("geocode", help="地址轉座標（Google，或 ROADCHECK_GEOCODER=tgos）")
     g.add_argument("address")
     g.add_argument("--limit", type=int, default=5)
     g.set_defaults(func=cmd_geocode)
