@@ -7,8 +7,16 @@
   Co_Ti 施工時段 | NPurp 挖掘目的 | DType 延期原因 | DLen 挖掘長度
   IsStay 是否長期工區 | IsBlock 是否影響交通 | PlanB 替代方案 | WItem 施工項目 | Positions 施工位置
 
-資源 ID（rid）請以 data.taipei 頁面上的「下載」連結為準，可用環境變數
+資料來源（2026-10 查證）：data.taipei 頁面上這個資料集是「系統介接」，「下載」按鈕直接指向
+  https://tpnco.blob.core.windows.net/blobfs/Todaywork.json
+而不是 data.taipei 的 datastore；頁面上的 rid（afb20478-f915-4ffa-a8e8-f78738b2e732）用
+``/api/v1/dataset/{rid}?scope=resourceAquire`` 查只會得到空陣列，舊的預設 rid
+875ea014-… 更是另一個資料集（資料集目錄）。所以預設直接抓 blob JSON；若日後搬回 datastore，
+把 URL 改成 resourceAquire 形式即可，``fetch_raw()`` 會自動翻頁。可用環境變數
 ROADCHECK_TAIPEI_TODAY_URL 整個覆寫 URL。
+
+注意：撰寫時的開發環境網路政策擋住 tpnco.blob.core.windows.net，blob JSON 的實際欄位尚未驗證；
+``_records()`` 同時接受 list 與 {"result":{"results":[…]}} 兩種形狀，欄位名不分大小寫。
 """
 from __future__ import annotations
 
@@ -19,9 +27,11 @@ from ..dates import parse_bool, parse_date
 from ..models import Event
 from .base import Source, http_get_json
 
-# 預設 rid 來自搜尋結果，尚未在此環境驗證；請對照 data.taipei 頁面。
-DEFAULT_RID = "875ea014-3ad0-4c79-93d3-049adb813c47"
-DEFAULT_URL = (
+# data.taipei 頁面「下載」連結指向的檔案（系統介接，不在 datastore）
+DEFAULT_URL = "https://tpnco.blob.core.windows.net/blobfs/Todaywork.json"
+# 頁面上的資源 id，只用來組 datastore 形式的 URL；目前 datastore 沒有資料
+DEFAULT_RID = "afb20478-f915-4ffa-a8e8-f78738b2e732"
+DATASTORE_URL = (
     "https://data.taipei/api/v1/dataset/" + DEFAULT_RID + "?scope=resourceAquire&limit=1000&offset=0"
 )
 DATASET_PAGE = "https://data.taipei/dataset/detail?id=c208dabd-2da0-4e6d-8dbd-a004b9782b0a"

@@ -4,6 +4,9 @@
   roadcheck subscribe route --name 通勤 --points "25.04,121.54;25.05,121.55" [--polyline <encoded>]
   roadcheck list
   roadcheck fetch [--source NAME] [--from-file PATH] [--dump]
+      來源：taipei_today_construction（data.taipei 今日施工，有座標）
+            taipei_planned_work（dig.taipei 預定施工路段，路名）
+            taipei_ext_restriction（dig.taipei 使用道路集會／臨時使用道路，路名）
   roadcheck run [--dry-run] [--horizon-days 2]      # fetch + match + notify，排程每天跑
   roadcheck demo                                     # 用樣本資料跑一遍，不需要網路
   roadcheck serve-line [--port 8000]                 # LINE webhook
@@ -130,28 +133,33 @@ def cmd_run(args, store: Store) -> int:
 
 def cmd_demo(args, store: Store) -> int:
     """用 tests/fixtures 的樣本跑一遍：建兩筆訂閱、載入樣本、印出通知。"""
-    from .sources import TaipeiTodayConstruction, TaipeiExtRestriction
+    from .sources import TaipeiExtRestriction, TaipeiPlannedWork, TaipeiTodayConstruction
 
     today = date.today()
     cons = TaipeiTodayConstruction().from_file(FIXTURE_DIR / "taipei_today_construction.sample.json")
     rest = TaipeiExtRestriction().from_file(FIXTURE_DIR / "taipei_ext_restriction.sample.html")
-    # 樣本日期是固定的，demo 時平移到今天附近
-    base = min(e.start for e in cons + rest if e.start)
-    shift = today - base
-    for e in cons + rest:
-        if e.start:
-            e.start += shift
-        if e.end:
-            e.end += shift
+    plan = TaipeiPlannedWork().from_file(FIXTURE_DIR / "taipei_planned_work.real.html")
+    # 樣本日期是固定的，demo 時把每個來源各自平移到今天附近
+    for group in (cons, rest, plan):
+        base = min((e.start for e in group if e.start), default=None)
+        if base is None:
+            continue
+        shift = today - base
+        for e in group:
+            if e.start:
+                e.start += shift
+            if e.end:
+                e.end += shift
     subs = [
         Subscription(id=1, name="停車：忠孝復興", kind="point", points=[(25.0418, 121.5440)], radius_m=150,
                      roads=["忠孝東路四段"]),
         Subscription(id=2, name="通勤：信義→民生", kind="route",
                      points=[(25.0330, 121.5654), (25.0415, 121.5495), (25.0520, 121.5440), (25.0580, 121.5440)],
-                     radius_m=60, roads=["民生東路三段"]),
+                     radius_m=60, roads=["民生東路三段", "忠孝西路"]),
     ]
-    print(f"demo: {len(cons)} construction + {len(rest)} restriction sample events, dates shifted by {shift.days} days")
-    matches = match_all(subs, cons + rest, today=today, horizon_days=args.horizon_days)
+    print(f"demo: {len(cons)} construction + {len(plan)} planned-work + {len(rest)} restriction sample events,"
+          " dates shifted to today")
+    matches = match_all(subs, cons + rest + plan, today=today, horizon_days=args.horizon_days)
     for sub_id, group in group_by_subscription(matches).items():
         ConsoleNotifier().send(group[0].subscription.name, format_digest(group[0].subscription.name, group))
     if not matches:

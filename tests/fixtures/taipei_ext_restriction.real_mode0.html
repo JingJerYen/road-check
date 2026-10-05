@@ -1,0 +1,154 @@
+
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8" /><title>
+	外部管制路段
+</title><link href="../Content/bootstrap.min.css" rel="stylesheet" /><link href="../Content/SetMasterPG.css" rel="stylesheet" /><link href="../Content/forAllPage.css" rel="stylesheet" />
+  <script type="text/javascript" src="../Scripts/My97DatePicker/WdatePicker.js"></script>
+  <style type="text/css">
+    #Labelstatus {
+      font-size: 24px;
+    }
+  </style>
+</head>
+<body id="JupmPage">
+  <form method="post" action="./ExtRestData.aspx" id="form1">
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="STRIPPED" />
+
+
+<script type="text/javascript">
+//<![CDATA[
+window.open('../Map/ShowExtRest.aspx?key2=YCH7b4040!!04c3tuC4hlNz&key3=LCHXQ1040!001HIaU3OEbrV','_parent');//]]>
+</script>
+
+<script src="/TpdigR.net/ScriptResource.axd?d=z0DTbBtn-rnL6mkfqyivpYB7RNTUjUPIc4T_ETGRun0LsXfZDIYHos-g3FewSbwGlULNhVlYPvM59TXXwJ4FPVRJMmb4y88-HBzABK7eUzjk4mz4Mjs8OdFNiH7xuh8nQ0_3LFBalKs3xpdDFK6m795Nlo2GQAmyL0l_vahz6eM1&amp;t=ffffffffa1bf0f7b" type="text/javascript"></script>
+<script type="text/javascript">
+//<![CDATA[
+if (typeof(Sys) === 'undefined') throw new Error('ASP.NET Ajax 用戶端架構無法載入。');
+//]]>
+</script>
+
+<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="8F99F6DD" />
+<input type="hidden" name="__VIEWSTATEENCRYPTED" id="__VIEWSTATEENCRYPTED" value="" />
+    
+    <div class="panel panel-primary">
+      <!--<div class="panel-heading">
+                <h3 class="panel-title">外部管制路段
+                </h3>
+            </div>
+            <div class="panel-body">
+
+                <input type="submit" name="ButExcel" value="匯出Excel" id="ButExcel" class="btn btn-sm btn-success pull-right" />
+
+            </div>-->
+      <div class="panel-body">
+        <table class="col-md-12 table table-bordered table-default table-bottom">
+          <tr>
+            <th>管制期間</th>
+            <td colspan="3">
+              <div class="navbar-form navbar-left">
+                <div class="form-group">
+                  <input name="TxtQDate0" type="text" value="1151005" maxlength="7" id="TxtQDate0" onclick="WdatePicker({el:&#39;TxtQDate0&#39;,dateFmt:&#39;yyyMMdd&#39;})" />
+                  
+                                    ~
+                                    <input name="TxtQDate1" type="text" value="1151012" maxlength="7" id="TxtQDate1" onclick="WdatePicker({el:&#39;TxtQDate1&#39;,dateFmt:&#39;yyyMMdd&#39;})" />
+                  
+                  <input type="submit" name="ButQuery" value="查　詢" id="ButQuery" class="btn btn-sm btn-primary pull-right" />
+                </div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <th>管制來源</th>
+            <td>
+              <input id="RadQMode0" type="radio" name="RadQMode" value="RadQMode0" checked="checked" /><label for="RadQMode0">活動管制</label><img id="ImgMode0" src="../Map/images/layExtRest.png" />
+            </td>
+            <td>
+              <input id="RadQMode1" type="radio" name="RadQMode" value="RadQMode1" onclick="javascript:setTimeout(&#39;__doPostBack(\&#39;RadQMode1\&#39;,\&#39;\&#39;)&#39;, 0)" /><label for="RadQMode1">使用道路集會</label><img id="ImgMode1" src="../Map/images/layRally.png" />
+            </td>
+            <td>
+              <input id="RadQMode2" type="radio" name="RadQMode" value="RadQMode2" onclick="javascript:setTimeout(&#39;__doPostBack(\&#39;RadQMode2\&#39;,\&#39;\&#39;)&#39;, 0)" /><label for="RadQMode2">臨時使用道路</label><img id="ImgMode2" src="../Map/images/layUrgent.png" />
+            </td>
+          </tr>
+        </table>
+
+      </div>
+      <div id="UpdatePanel1">
+	
+          <div>
+		<table class="col-md-12 table table-bordered table-hover table-primary thtextShadow table-tr table-thcenter table-PagerStyle" cellspacing="0" cellpadding="4" rules="cols" border="1" id="GridView1">
+			<tr align="center">
+				<td colspan="4"><table>
+					<tr>
+						<td><span>1</span></td><td><a href="javascript:__doPostBack(&#39;GridView1&#39;,&#39;Page$2&#39;)">2</a></td><td><a href="javascript:__doPostBack(&#39;GridView1&#39;,&#39;Page$3&#39;)">3</a></td><td><a href="javascript:__doPostBack(&#39;GridView1&#39;,&#39;Page$4&#39;)">4</a></td>
+					</tr>
+				</table></td>
+			</tr><tr>
+				<th scope="col">挖掘管制日期</th><th scope="col">管制原因</th><th scope="col">施工單位</th><th scope="col">管制路段</th>
+			</tr><tr>
+				<td align="center" width="150">115/09/08-115/10/11</td><td align="center" width="100">配合管制</td><td align="left" width="150">國慶籌備委員會</td><td align="left">
+                  <a onclick="window.open(&#39;../Map/ShowExtRest.aspx?key=11500183&amp;key2=VFHp62pJ4040!!04inONGWx&amp;key3=oFHr9Zrh4040!!04dpXANjiUmocDp&#39;,&#39;_parent&#39;);" id="GridView1_TLnkMap_0" href="javascript:__doPostBack(&#39;GridView1$ctl03$TLnkMap&#39;,&#39;&#39;)">１、本市中正區（下同）中華路1段（不含）、博愛路（含）以東。
+２、林森南路、杭州南路（均不含）、中山南路、羅斯福路1段（含）以西。
+３、武昌街、襄陽路、徐州路、信義路1段（均不含）、常德街、忠孝西路1段（均含）以南。
+４、廣州街、南海路、愛國東路（均不含）以北等以上區域道路範圍。</a>
+                  <input type="hidden" name="GridView1$ctl03$THidEn_da" id="GridView1_THidEn_da_0" />
+                </td>
+			</tr><tr>
+				<td align="center" width="150">115/07/15-115/12/31</td><td align="center" width="100">議員要求</td><td align="left" width="150">工務局</td><td align="left">
+                  <a onclick="window.open(&#39;../Map/ShowExtRest.aspx?key=11500208&amp;key2=YFHjhsYa4040!!04V8mvj8p&amp;key3=sFHTGz584040!!04vKbQH5RmIGXBl&#39;,&#39;_parent&#39;);" id="GridView1_TLnkMap_1" href="javascript:__doPostBack(&#39;GridView1$ctl04$TLnkMap&#39;,&#39;&#39;)">信義區惠安里吳興街本線(351號至487號)</a>
+                  <input type="hidden" name="GridView1$ctl04$THidEn_da" id="GridView1_THidEn_da_1" />
+                </td>
+			</tr><tr>
+				<td align="center" width="150">115/06/04-120/12/31</td><td align="center" width="100">議員要求</td><td align="left" width="150">工務局</td><td align="left">
+                  <a onclick="window.open(&#39;../Map/ShowExtRest.aspx?key=11500178&amp;key2=GFHuvo7f4040!!04UgGgC6T&amp;key3=aFHwHyM24040!!04Pu8422TFNstpG&#39;,&#39;_parent&#39;);" id="GridView1_TLnkMap_2" href="javascript:__doPostBack(&#39;GridView1$ctl05$TLnkMap&#39;,&#39;&#39;)">民族東路685-1、687-1號鄰近範圍</a>
+                  <input type="hidden" name="GridView1$ctl05$THidEn_da" id="GridView1_THidEn_da_2" />
+                </td>
+			</tr><tr>
+				<td align="center" width="150">115/06/04-120/12/31</td><td align="center" width="100">議員要求</td><td align="left" width="150">工務局</td><td align="left">
+                  <a onclick="window.open(&#39;../Map/ShowExtRest.aspx?key=11500179&amp;key2=tFH3qkzG4040!!04a3LwjI0&amp;key3=2FHvoaHy4040!!04W16gWZmk0CSNP&#39;,&#39;_parent&#39;);" id="GridView1_TLnkMap_3" href="javascript:__doPostBack(&#39;GridView1$ctl06$TLnkMap&#39;,&#39;&#39;)">水源路61號鄰近範圍</a>
+                  <input type="hidden" name="GridView1$ctl06$THidEn_da" id="GridView1_THidEn_da_3" />
+                </td>
+			</tr><tr>
+				<td align="center" width="150">115/06/04-120/12/31</td><td align="center" width="100">議員要求</td><td align="left" width="150">工務局</td><td align="left">
+                  <a onclick="window.open(&#39;../Map/ShowExtRest.aspx?key=11500180&amp;key2=WFH2ToLg4040!!04J4qIqwW&amp;key3=TFHLNfj14040!!043iTpesvA6uMCG&#39;,&#39;_parent&#39;);" id="GridView1_TLnkMap_4" href="javascript:__doPostBack(&#39;GridView1$ctl07$TLnkMap&#39;,&#39;&#39;)">金龍路13巷14號鄰近範圍</a>
+                  <input type="hidden" name="GridView1$ctl07$THidEn_da" id="GridView1_THidEn_da_4" />
+                </td>
+			</tr><tr>
+				<td align="center" width="150">115/06/04-120/12/31</td><td align="center" width="100">議員要求</td><td align="left" width="150">工務局</td><td align="left">
+                  <a onclick="window.open(&#39;../Map/ShowExtRest.aspx?key=11500181&amp;key2=pFHWnTSK4040!!04Gt3BECN&amp;key3=yFH5ZfNJ4040!!04eFjvcTo4j5WvO&#39;,&#39;_parent&#39;);" id="GridView1_TLnkMap_5" href="javascript:__doPostBack(&#39;GridView1$ctl08$TLnkMap&#39;,&#39;&#39;)">環河南路三段79號鄰近範圍</a>
+                  <input type="hidden" name="GridView1$ctl08$THidEn_da" id="GridView1_THidEn_da_5" />
+                </td>
+			</tr><tr>
+				<td align="center" width="150">115/05/17-116/12/31</td><td align="center" width="100">里長要求</td><td align="left" width="150">中正區公所</td><td align="left">
+                  <a onclick="window.open(&#39;../Map/ShowExtRest.aspx?key=11500154&amp;key2=yFH6TdBO4040!!0495JEPGl&amp;key3=KFH9nQgy4040!!04hQ0S2AiRyjjYw&#39;,&#39;_parent&#39;);" id="GridView1_TLnkMap_6" href="javascript:__doPostBack(&#39;GridView1$ctl09$TLnkMap&#39;,&#39;&#39;)">施工通知單里長簽收替代方式，同意得以「里辦公處圓戳章」併同「里辦公處相關人員(里幹事、志工、義工等)簽名」辦理</a>
+                  <input type="hidden" name="GridView1$ctl09$THidEn_da" id="GridView1_THidEn_da_6" />
+                </td>
+			</tr><tr>
+				<td align="center" width="150">115/05/13-115/12/31</td><td align="center" width="100">議員要求</td><td align="left" width="150">工務局</td><td align="left">
+                  <a onclick="window.open(&#39;../Map/ShowExtRest.aspx?key=11500146&amp;key2=FFHsu7rA4040!!04Tjepu8o&amp;key3=aFHdc7LV4040!!04jpct1gnSz8IKa&#39;,&#39;_parent&#39;);" id="GridView1_TLnkMap_7" href="javascript:__doPostBack(&#39;GridView1$ctl10$TLnkMap&#39;,&#39;&#39;)">內湖路3段163巷8弄、內湖路3段191巷、內湖路3段143巷、金龍路3段213巷、金龍路3段213巷1弄。</a>
+                  <input type="hidden" name="GridView1$ctl10$THidEn_da" id="GridView1_THidEn_da_7" />
+                </td>
+			</tr><tr>
+				<td align="center" width="150">115/05/13-125/12/31</td><td align="center" width="100">文資管制區域</td><td align="left" width="150">文化局</td><td align="left">
+                  <a onclick="window.open(&#39;../Map/ShowExtRest.aspx?key=11500147&amp;key2=9FHqr46G4040!!04sKefAn9&amp;key3=3FHaErdk4040!!04WfUNCnLnnEwT0&#39;,&#39;_parent&#39;);" id="GridView1_TLnkMap_8" href="javascript:__doPostBack(&#39;GridView1$ctl11$TLnkMap&#39;,&#39;&#39;)">博愛路（衡陽路至寶慶路間）、延平南路（開封街至漢口街、北門至開封街、貴陽街口至中華路1段85巷口）、貴陽街1段（公園路至中山南路）、貴陽街1段60、120號、公園路15之3號、懷寧街42號至62號、衡陽路76號、
+愛國西路及延平南路口</a>
+                  <input type="hidden" name="GridView1$ctl11$THidEn_da" id="GridView1_THidEn_da_8" />
+                </td>
+			</tr><tr>
+				<td align="center" width="150">115/01/28-115/12/31</td><td align="center" width="100">里長要求</td><td align="left" width="150">里長</td><td align="left">
+                  <a onclick="window.open(&#39;../Map/ShowExtRest.aspx?key=11500031&amp;key2=lFHKS43C4040!!041wP6Mpd&amp;key3=oFHQucFG4040!!04rLJd7CkJSkr6f&#39;,&#39;_parent&#39;);" id="GridView1_TLnkMap_9" href="javascript:__doPostBack(&#39;GridView1$ctl12$TLnkMap&#39;,&#39;&#39;)">福興路63巷及福興路95巷非興邦里範圍，請施工單位於上述2處地點施工時不需要找興邦里里長蓋章</a>
+                  <input type="hidden" name="GridView1$ctl12$THidEn_da" id="GridView1_THidEn_da_9" />
+                </td>
+			</tr>
+		</table>
+	</div>
+          
+        
+</div>
+    </div>
+
+  </form>
+</body>
+</html>

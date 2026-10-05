@@ -22,10 +22,15 @@ KIND_LABEL = {
 # 「忠孝東路四段」「復興南路」「市民大道」「八德路2段」
 # 排除連接詞與行政區字樣，避免「口至敦化南路」「大安區忠孝東路」被整段吃進去
 _ROAD_RE = re.compile(
-    r"[^\s\d口至到與及和、，,．.（）()~～\-區段巷弄號]{1,6}?(?:大道|路|街)(?:[一二三四五六七八九十\d]{1,2}段)?"
+    r"[^\s\d口至到自從與及和、，,．.（）()~～\-區段巷弄號]{1,6}?(?:大道|路|街)(?:[一二三四五六七八九十\d]{1,2}段)?"
 )
 _CJK_NUM = {"一": "1", "二": "2", "三": "3", "四": "4", "五": "5",
             "六": "6", "七": "7", "八": "8", "九": "9", "十": "10"}
+# 抽路名前先把這些符號換成空白，免得「【民權東路二段」「集會：光復南路」整段被吃進去
+_NOISE_RE = re.compile(r"[【】「」『』《》〈〉\[\]。：:；;！!？?，,、　]")
+_CITY_RE = re.compile(r"臺北市|台北市|本市")
+# 像路名但不是路名的詞（dig.taipei 的「使用道路集會」「臨時使用道路」會被抓成「使用道路」）
+_NOT_ROADS = {"使用道路", "臨時使用道路", "道路"}
 
 
 def normalize_road(name: str) -> str:
@@ -44,9 +49,10 @@ def extract_roads(text: str) -> set[str]:
     """從施工地點描述抓出路名（含段）。"""
     if not text:
         return set()
+    text = _CITY_RE.sub(" ", _NOISE_RE.sub(" ", text))
     found = {normalize_road(m.group(0)) for m in _ROAD_RE.finditer(text)}
     # 過濾掉太短或不像路名的碎片
-    return {r for r in found if len(r) >= 3}
+    return {r for r in found if len(r) >= 3 and r not in _NOT_ROADS}
 
 
 @dataclass
