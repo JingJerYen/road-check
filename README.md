@@ -27,7 +27,7 @@
 
 ```bash
 git clone https://github.com/JingJerYen/road-check && cd road-check
-python3 -m unittest discover -s tests      # 85 tests，離線
+python3 -m unittest discover -s tests      # 98 tests，離線
 python3 -m roadcheck demo                   # 用真實資料的樣本離線跑一遍，看通知長什麼樣
 python3 -m roadcheck fetch                  # 真的去抓（dig.taipei 要翻頁＋逐案抓幾何，約 5–10 分鐘）
 ```
@@ -50,16 +50,21 @@ roadcheck geocode "台北市西園路二段255號"        # 只查座標，確�
 roadcheck subscribe route --name 通勤 --points "25.0330,121.5654;25.0415,121.5495;25.0580,121.5440"
 roadcheck subscribe route --name 通勤 --polyline "_p~iF~ps|U_ulLnnqC_mqNvxq`@" --line-user U1234567890abcdef
 
-roadcheck list
+# 每個訂閱可以設定通知「今天起未來幾天內」的事件，1–14 天，預設 3 天
+roadcheck subscribe point --name 停車 --lat 25.025954 --lon 121.492734 --days 7
+roadcheck days 1 3                    # 把 #1 改成未來 3 天
+
+roadcheck list                        # 會列出每個訂閱的半徑與天數
 roadcheck fetch                       # 抓所有來源存進 SQLite
 roadcheck fetch --source taipei_ext_restriction --dump   # 只抓一個來源並印原始資料
 roadcheck run --dry-run               # 抓資料 + 比對 + 印出通知，不真的推播
-roadcheck run --horizon-days 7        # 正式跑；放進 cron 每天早上跑一次
+roadcheck run                         # 正式跑；放進 cron 每天早上跑一次
 ```
 
-`run` 預設只看今天起 2 天內的事件（`--horizon-days`）。施工資料只有「今天在施工」的案件，
-dig.taipei 的集會／臨時使用道路列表則可以看到未來（抓取時預設往後 7 天，`ROADCHECK_EXT_DAYS`），
-想提早幾天收到預告就把 `--horizon-days` 調大。同一事件只通知一次，除非它的日期、範圍或影響交通旗標改變。
+`run` 對每個訂閱用它自己的天數過濾事件：今天起 N 天內開始、或正在進行的都算，通知標題會寫「未來 N 天」。
+`run --horizon-days N` 可以臨時覆寫所有訂閱的天數（測試用）。dig.taipei 會自動抓到所有訂閱中最長的天數為止，
+所以天數設越長，每天抓取越久（7 天約 5–10 分鐘）。施工資料只有「今天在施工」的案件，天數對它影響不大。
+同一事件只通知一次，除非它的日期、範圍或影響交通旗標改變。
 
 ### LINE Bot
 
@@ -78,7 +83,7 @@ dig.taipei 的集會／臨時使用道路列表則可以看到未來（抓取時
    ```
 
 4. 使用者加好友後，在 LINE 裡**傳送位置**就完成訂閱，或傳「`地址 台北市西園路二段255號`」。
-   其他指令：`列表`、`刪除 2`、`半徑 200`、`路線 lat,lon;lat,lon`、`路名 忠孝東路四段`、`幫助`。
+   其他指令：`列表`、`刪除 2`、`半徑 200`、`天數 7`（或 `天數 7 2` 改第 2 筆）、`路線 lat,lon;lat,lon`、`路名 忠孝東路四段`、`幫助`。
 5. cron 每天跑 `roadcheck run`，有異動就推播給對應的 LINE userId。
 
 免費方案每月 200 則推播，webhook 回覆走 reply 不計費。LINE Notify 已停止服務，這裡用的是 Messaging API。
@@ -145,7 +150,7 @@ tests/fixtures 從真實資料擷取並裁短的樣本（聯絡人已去識別�
   回 JSON，每筆一個 TWD97 多邊形。活動管制依日期區間一次拿完；集會／臨時使用道路不帶案號只回今天的，
   未來的案件要逐案抓（每案約 1 秒，預設最多 150 案，`ROADCHECK_EXT_MAX_CASE_FETCHES`），
   抓不到幾何的就退回路名比對。
-- 環境變數：`ROADCHECK_EXT_DAYS`（往後看幾天，預設 7）、`ROADCHECK_EXT_MODES`（預設 `EXTREST,RALLY,URGENT`，
+- 環境變數：`ROADCHECK_EXT_DAYS`（往後至少抓幾天；平常由訂閱的天數自動決定）、`ROADCHECK_EXT_MODES`（預設 `EXTREST,RALLY,URGENT`，
   不想要臨時使用道路就設 `EXTREST,RALLY`，抓取會快很多）、`ROADCHECK_EXT_MAX_DAYS`（活動管制超過幾天視為長期規定，預設 90）。
 
 ## 後續

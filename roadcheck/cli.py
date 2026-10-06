@@ -3,10 +3,11 @@
   roadcheck subscribe point --name 家 --lat 25.04 --lon 121.54 --radius 100 [--line-user Uxxx]
   roadcheck subscribe point --name 停車 --address "台北市西園路二段255號"   # 地址轉座標（Google）
   roadcheck geocode "台北市西園路二段255號"            # 只查座標
-  roadcheck subscribe route --name 通勤 --points "25.04,121.54;25.05,121.55" [--polyline <encoded>]
+  roadcheck subscribe route --name 通勤 --points "25.04,121.54;25.05,121.55" [--polyline <encoded>] [--days 7]
+  roadcheck days 1 7                                  # 把 #1 改成通知未來 7 天
   roadcheck list
   roadcheck fetch [--source NAME] [--from-file PATH] [--dump]
-  roadcheck run [--dry-run] [--horizon-days 2]      # fetch + match + notify，排程每天跑
+  roadcheck run [--dry-run] [--horizon-days N]      # fetch + match + notify，排程每天跑；N 會覆寫所有訂閱的天數
   roadcheck demo                                     # 用樣本資料跑一遍，不需要網路
   roadcheck serve-line [--port 8000]                 # LINE webhook
 """
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -21,7 +23,7 @@ from pathlib import Path
 from .geo import decode_polyline, parse_points
 from .geocode import GeocodeError, get_geocoder
 from .matcher import match_all
-from .models import Subscription, extract_roads
+from .models import MAX_DAYS, MIN_DAYS, Subscription, extract_roads
 from .notify import ConsoleNotifier, format_digest, get_notifier, group_by_subscription
 from .sources import ALL_SOURCES, SourceError
 from .store import DEFAULT_DB, Store
@@ -57,10 +59,11 @@ def cmd_subscribe(args, store: Store) -> int:
     sub = Subscription(
         name=args.name, kind=args.kind, points=pts, radius_m=args.radius,
         roads=roads, channel=channel, channel_target=args.line_user or "",
-        only_blocking=args.only_blocking,
+        only_blocking=args.only_blocking, days=args.days,
     )
     store.add_subscription(sub)
-    print(f"added subscription #{sub.id} {sub.name} ({sub.kind}, {len(pts)} pts, {sub.radius_m:.0f} m, {channel})")
+    print(f"added subscription #{sub.id} {sub.name} ({sub.kind}, {len(pts)} pts, {sub.radius_m:.0f} m, "
+          f"未來 {sub.days} 天, {channel})")
     return 0
 
 
@@ -85,16 +88,52 @@ def cmd_list(args, store: Store) -> int:
         print("(no subscriptions)")
     for s in subs:
         roads = f" roads={','.join(s.roads)}" if s.roads else ""
-        print(f"#{s.id:<3} {s.kind:<5} {s.radius_m:>5.0f}m {s.channel:<7} {s.name}{roads}")
+        print(f"#{s.id:<3} {s.kind:<5} {s.radius_m:>5.0f}m {s.days:>2}天 {s.channel:<7} {s.name}{roads}")
     n = len(store.list_events())
     print(f"{n} events in store ({store.path})")
     return 0
 
 
-def _fetch_into_store(store: Store, source_names: list[str], from_file: str | None, dump: bool) -> int:
+def cmd_days(args, store: Store) -> int:
+    sub = store.get_subscription(args.id)
+    if sub is None:
+        print(f"no subscription #{args.id}", file=sys.stderr)
+        return 1
+    if not MIN_DAYS <= args.n <= MAX_DAYS:
+        print(f"天數要在 {MIN_DAYS}–{MAX_DAYS} 之間", file=sys.stderr)
+        return 2
+    sub.days = args.n
+    store.update_subscription(sub)
+    print(f"#{sub.id} {sub.name}：通知未來 {sub.days} 天")
+    return 0
+
+
+def ext_fetch_days(store: Store, override: int | None = None) -> int | None:
+    """dig.taipei 要往後抓幾天：覆寫值 > 所有訂閱裡最大的天數（與 ROADCHECK_EXT_DAYS 取大）。
+
+    回 None 表示交給來源自己的預設（沒有訂閱時）。
+    """
+    if override is not None:
+        return override
+    need = max((s.days for s in store.list_subscriptions()), default=None)
+    env = os.environ.get("ROADCHECK_EXT_DAYS")
+    if env:
+        need = max(need or 0, int(env))
+    return need
+
+
+def _make_source(name: str, ext_days: int | None):
+    cls = ALL_SOURCES[name]
+    if ext_days is not None and name == "taipei_ext_restriction":
+        return cls(days=ext_days)
+    return cls()
+
+
+def _fetch_into_store(store: Store, source_names: list[str], from_file: str | None, dump: bool,
+                      ext_days: int | None = None) -> int:
     failures = 0
     for name in source_names:
-        src = ALL_SOURCES[name]()
+        src = _make_source(name, ext_days)
         try:
             if from_file:
                 if dump:
@@ -124,7 +163,7 @@ def cmd_fetch(args, store: Store) -> int:
     if args.from_file and not args.source:
         print("--from-file needs --source", file=sys.stderr)
         return 2
-    return 1 if _fetch_into_store(store, names, args.from_file, args.dump) else 0
+    return 1 if _fetch_into_store(store, names, args.from_file, args.dump, ext_fetch_days(store)) else 0
 
 
 def _notify(store: Store, subs, events, today, horizon_days, dry_run) -> int:
@@ -134,7 +173,7 @@ def _notify(store: Store, subs, events, today, horizon_days, dry_run) -> int:
     sent = 0
     for sub_id, group in group_by_subscription(fresh).items():
         sub = group[0].subscription
-        text = format_digest(sub.name, group)
+        text = format_digest(sub.name, group, days=horizon_days if horizon_days is not None else sub.days)
         try:
             notifier = get_notifier(sub.channel, dry_run=dry_run)
             notifier.send(sub.channel_target, text)
@@ -151,7 +190,7 @@ def _notify(store: Store, subs, events, today, horizon_days, dry_run) -> int:
 
 def cmd_run(args, store: Store) -> int:
     if not args.skip_fetch:
-        _fetch_into_store(store, list(ALL_SOURCES), None, False)
+        _fetch_into_store(store, list(ALL_SOURCES), None, False, ext_fetch_days(store, args.horizon_days))
     subs = store.list_subscriptions()
     if not subs:
         print("no subscriptions; nothing to do")
@@ -187,7 +226,8 @@ def cmd_demo(args, store: Store) -> int:
     print(f"demo: {len(cons)} construction + {len(rest)} restriction sample events ({shifted} moved to start today)")
     matches = match_all(subs, cons + rest, today=today, horizon_days=args.horizon_days)
     for sub_id, group in group_by_subscription(matches).items():
-        ConsoleNotifier().send(group[0].subscription.name, format_digest(group[0].subscription.name, group))
+        ConsoleNotifier().send(group[0].subscription.name,
+                               format_digest(group[0].subscription.name, group, days=args.horizon_days))
     if not matches:
         print("(no matches)")
     return 0
@@ -217,9 +257,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--roads", nargs="*", help="路名，給沒座標的封路資料比對")
     s.add_argument("--line-user", help="LINE userId；有給就用 LINE 推播")
     s.add_argument("--only-blocking", action="store_true", help="只通知影響交通的事件")
+    s.add_argument("--days", type=int, default=3, help=f"通知今天起未來幾天內的事件（{MIN_DAYS}–{MAX_DAYS}，預設 3）")
     s.set_defaults(func=cmd_subscribe)
 
     sp.add_parser("list", help="列出訂閱與事件數").set_defaults(func=cmd_list)
+
+    dd = sp.add_parser("days", help="更改訂閱的通知天數")
+    dd.add_argument("id", type=int)
+    dd.add_argument("n", type=int, help=f"{MIN_DAYS}–{MAX_DAYS}")
+    dd.set_defaults(func=cmd_days)
 
     g = sp.add_parser("geocode", help="地址轉座標（Google，或 ROADCHECK_GEOCODER=tgos）")
     g.add_argument("address")
@@ -235,7 +281,8 @@ def build_parser() -> argparse.ArgumentParser:
     r = sp.add_parser("run", help="fetch + 比對 + 通知（排程用）")
     r.add_argument("--dry-run", action="store_true", help="只印出，不真的推播也不記錄")
     r.add_argument("--skip-fetch", action="store_true")
-    r.add_argument("--horizon-days", type=int, default=2, help="往後看幾天（預設 2）")
+    r.add_argument("--horizon-days", type=int, default=None,
+                   help="臨時覆寫所有訂閱的天數；不給就用每個訂閱自己的設定")
     r.set_defaults(func=cmd_run)
 
     d = sp.add_parser("demo", help="用樣本資料離線跑一遍")
@@ -252,6 +299,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    if args.cmd == "subscribe" and not MIN_DAYS <= args.days <= MAX_DAYS:
+        print(f"--days 要在 {MIN_DAYS}–{MAX_DAYS} 之間", file=sys.stderr)
+        return 2
     if args.cmd == "subscribe" and args.radius is None:
         args.radius = 100.0 if args.kind == "point" else 50.0
     if args.cmd == "subscribe" and args.kind == "point" and not args.address and (args.lat is None or args.lon is None):

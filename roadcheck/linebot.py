@@ -7,6 +7,7 @@
   列表                    -> 列出我的訂閱
   刪除 <編號>             -> 刪除訂閱
   半徑 <公尺>             -> 更改最近一筆訂閱的半徑
+  天數 <天> [編號]        -> 通知未來幾天內的事件（1–14，預設 3）；不給編號就改最近一筆
   路線 lat,lon;lat,lon;…  -> 建立路線訂閱
   路名 忠孝東路四段 復興南路 -> 替最近一筆訂閱加上路名（給沒座標的封路資料比對用）
   地址 台北市西園路二段255號 -> 地址轉座標後訂閱（需 GOOGLE_MAPS_API_KEY，或 TGOS 金鑰）
@@ -29,7 +30,7 @@ from typing import Callable
 
 from .geo import parse_points
 from .geocode import GeocodeError, Geocoder, get_geocoder
-from .models import Subscription, extract_roads
+from .models import MAX_DAYS, MIN_DAYS, Subscription, extract_roads
 from .notify import LineNotifier
 from .store import Store
 
@@ -41,6 +42,7 @@ HELP = (
     "・列表：看我的訂閱\n"
     "・刪除 3：刪除第 3 筆\n"
     "・半徑 200：把最近一筆改成 200 公尺\n"
+    "・天數 7：通知未來 7 天內的事件（1–14 天，預設 3）；「天數 7 2」改第 2 筆\n"
     "・路線 25.04,121.54;25.05,121.55：訂閱一條路線\n"
     "・路名 忠孝東路四段 復興南路：加上路名，沒座標的封路公告也能比對\n"
     "・地址 台北市西園路二段255號：用門牌地址訂閱\n"
@@ -89,8 +91,8 @@ class CommandHandler:
             radius_m=self.default_radius_m, channel="line", channel_target=user_id,
         )
         self.store.add_subscription(sub)
-        return (f"✅ 已訂閱 #{sub.id}「{sub.name}」\n半徑 {sub.radius_m:.0f} 公尺。"
-                f"\n附近有施工或封路時會通知你。傳「半徑 200」可調整範圍。")
+        return (f"✅ 已訂閱 #{sub.id}「{sub.name}」\n半徑 {sub.radius_m:.0f} 公尺，通知未來 {sub.days} 天。"
+                f"\n附近有施工或封路時會通知你。傳「半徑 200」可調整範圍，「天數 7」可改天數。")
 
     def handle_text(self, user_id: str, text: str) -> str:
         parts = text.strip().split()
@@ -105,7 +107,7 @@ class CommandHandler:
             subs = self.store.list_subscriptions(channel_target=user_id)
             if not subs:
                 return "你還沒有訂閱。傳送位置給我就能訂閱。"
-            lines = [f"#{s.id} {s.name}（{'路線' if s.kind == 'route' else '位置'}，{s.radius_m:.0f}m"
+            lines = [f"#{s.id} {s.name}（{'路線' if s.kind == 'route' else '位置'}，{s.radius_m:.0f}m，{s.days} 天"
                      + (f"，路名：{'、'.join(s.roads)}" if s.roads else "") + "）" for s in subs]
             return "你的訂閱：\n" + "\n".join(lines)
         if cmd in ("刪除", "delete", "del") and args:
@@ -125,6 +127,21 @@ class CommandHandler:
             sub.radius_m = max(20.0, min(r, 2000.0))
             self.store.update_subscription(sub)
             return f"✅ #{sub.id}「{sub.name}」半徑改為 {sub.radius_m:.0f} 公尺"
+        if cmd in ("天數", "days"):
+            if not args:
+                return f"請在「天數」後面接數字，例如「天數 7」（{MIN_DAYS}–{MAX_DAYS} 天）。"
+            try:
+                n = int(args[0].rstrip("天日"))
+            except ValueError:
+                return f"天數要是數字，例如「天數 7」（{MIN_DAYS}–{MAX_DAYS} 天）。"
+            sub = self._own(user_id, args[1]) if len(args) > 1 else self._latest(user_id)
+            if sub is None:
+                return "找不到這個訂閱。傳「列表」看看你的訂閱。" if len(args) > 1 else "你還沒有訂閱。"
+            sub.days = n
+            sub.__post_init__()           # 超出範圍會被夾到 1–14
+            self.store.update_subscription(sub)
+            note = "" if sub.days == n else f"（只能設 {MIN_DAYS}–{MAX_DAYS} 天）"
+            return f"✅ #{sub.id}「{sub.name}」改為通知未來 {sub.days} 天{note}"
         if cmd in ("路線", "route") and args:
             try:
                 pts = parse_points(" ".join(args))
@@ -133,7 +150,7 @@ class CommandHandler:
             except (ValueError, IndexError):
                 return "路線格式：路線 25.04,121.54;25.05,121.55（至少兩點）"
             self.store.add_subscription(sub)
-            return f"✅ 已訂閱路線 #{sub.id}，線兩側 {sub.radius_m:.0f} 公尺。"
+            return f"✅ 已訂閱路線 #{sub.id}，線兩側 {sub.radius_m:.0f} 公尺，通知未來 {sub.days} 天。"
         if cmd in ("地址", "address", "addr"):
             address = "".join(args) if args else text.strip()[2:].strip()
             if not address:
@@ -147,7 +164,8 @@ class CommandHandler:
             sub = Subscription(name=(g.full_address or address)[:40], kind="point", points=[g.location],
                                radius_m=self.default_radius_m, roads=roads, channel="line", channel_target=user_id)
             self.store.add_subscription(sub)
-            return (f"✅ 已訂閱 #{sub.id}「{sub.name}」\n座標 {g.lat:.5f}, {g.lon:.5f}，半徑 {sub.radius_m:.0f} 公尺"
+            return (f"✅ 已訂閱 #{sub.id}「{sub.name}」\n座標 {g.lat:.5f}, {g.lon:.5f}，半徑 {sub.radius_m:.0f} 公尺，"
+                    f"通知未來 {sub.days} 天"
                     + (f"，路名 {'、'.join(roads)}" if roads else "") + "。\n位置不對的話傳「刪除 %d」再重傳位置。" % sub.id)
         if cmd in ("路名", "roads") and args:
             sub = self._latest(user_id)

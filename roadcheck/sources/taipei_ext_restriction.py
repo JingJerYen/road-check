@@ -267,7 +267,7 @@ class TaipeiExtRestriction(Source):
     kind = "restriction"
 
     def __init__(self, url: str | None = None, days: int | None = None, modes: list[str] | None = None,
-                 max_event_days: int | None = None, max_pages: int = 200, max_case_fetches: int | None = None):
+                 max_event_days: int | None = None, max_pages: int = 400, max_case_fetches: int | None = None):
         self.url = url or os.environ.get("ROADCHECK_TAIPEI_EXT_URL", DEFAULT_URL)
         self.days = days if days is not None else int(os.environ.get("ROADCHECK_EXT_DAYS", "7"))
         env_modes = os.environ.get("ROADCHECK_EXT_MODES")

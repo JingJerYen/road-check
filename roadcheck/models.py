@@ -132,6 +132,15 @@ class Event:
         )
 
 
+DEFAULT_DAYS = 3      # 預設通知「今天起未來幾天內」的事件
+MIN_DAYS = 1
+MAX_DAYS = 14         # dig.taipei 臨時使用道路一天上百件，再長抓取會很慢
+
+
+def clamp_days(days) -> int:
+    return max(MIN_DAYS, min(int(days), MAX_DAYS))
+
+
 @dataclass
 class Subscription:
     name: str
@@ -143,9 +152,11 @@ class Subscription:
     channel_target: str = ""          # LINE userId 等
     only_blocking: bool = False       # 只通知「影響交通」的事件
     id: Optional[int] = None
+    days: int = DEFAULT_DAYS          # 通知今天起未來幾天內開始（或進行中）的事件，1–14
 
     def __post_init__(self) -> None:
         self.roads = sorted({normalize_road(r) for r in self.roads if r.strip()})
+        self.days = clamp_days(self.days)
         if self.kind == "point" and len(self.points) != 1:
             raise ValueError("point subscription needs exactly one point")
         if self.kind == "route" and len(self.points) < 2:

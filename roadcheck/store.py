@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
-from .models import Event, Subscription
+from .models import DEFAULT_DAYS, Event, Subscription
 
 DEFAULT_DB = os.environ.get("ROADCHECK_DB", "roadcheck.sqlite3")
 
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     channel TEXT NOT NULL DEFAULT 'console',
     channel_target TEXT NOT NULL DEFAULT '',
     only_blocking INTEGER NOT NULL DEFAULT 0,
+    days INTEGER NOT NULL DEFAULT 3,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS events (
@@ -66,7 +67,10 @@ class Store:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(events)")}
         if "shapes" not in cols:
             self.conn.execute("ALTER TABLE events ADD COLUMN shapes TEXT")
-            self.conn.commit()
+        sub_cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(subscriptions)")}
+        if "days" not in sub_cols:
+            self.conn.execute(f"ALTER TABLE subscriptions ADD COLUMN days INTEGER NOT NULL DEFAULT {DEFAULT_DAYS}")
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()
@@ -74,10 +78,10 @@ class Store:
     # ---- subscriptions ----
     def add_subscription(self, sub: Subscription) -> Subscription:
         cur = self.conn.execute(
-            "INSERT INTO subscriptions (name, kind, points, radius_m, roads, channel, channel_target, only_blocking, created_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO subscriptions (name, kind, points, radius_m, roads, channel, channel_target, only_blocking,"
+            " days, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (sub.name, sub.kind, json.dumps(sub.points), sub.radius_m, json.dumps(sub.roads, ensure_ascii=False),
-             sub.channel, sub.channel_target, int(sub.only_blocking), _now()),
+             sub.channel, sub.channel_target, int(sub.only_blocking), sub.days, _now()),
         )
         self.conn.commit()
         sub.id = cur.lastrowid
@@ -85,9 +89,10 @@ class Store:
 
     def update_subscription(self, sub: Subscription) -> None:
         self.conn.execute(
-            "UPDATE subscriptions SET name=?, kind=?, points=?, radius_m=?, roads=?, channel=?, channel_target=?, only_blocking=? WHERE id=?",
+            "UPDATE subscriptions SET name=?, kind=?, points=?, radius_m=?, roads=?, channel=?, channel_target=?,"
+            " only_blocking=?, days=? WHERE id=?",
             (sub.name, sub.kind, json.dumps(sub.points), sub.radius_m, json.dumps(sub.roads, ensure_ascii=False),
-             sub.channel, sub.channel_target, int(sub.only_blocking), sub.id),
+             sub.channel, sub.channel_target, int(sub.only_blocking), sub.days, sub.id),
         )
         self.conn.commit()
 
@@ -118,6 +123,7 @@ class Store:
             radius_m=r["radius_m"], roads=json.loads(r["roads"]),
             channel=r["channel"], channel_target=r["channel_target"],
             only_blocking=bool(r["only_blocking"]),
+            days=r["days"],
         )
 
     # ---- events ----

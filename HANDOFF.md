@@ -50,12 +50,13 @@ GET 參數是否被接受、XML 包 JSON 的格式、`AddressList` 欄位名、�
 - [ ] 建 Messaging API channel，設 `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`。
 - [ ] `python3 -m roadcheck serve-line`，用 ngrok 或 Cloudflare Tunnel 暴露，填 Webhook URL，開 "Use webhook"。
 - [ ] 加好友 → 傳位置 → 收到「已訂閱」；傳「地址 台北市西園路二段255號」也要能訂閱。
-- [ ] `python3 -m roadcheck run --dry-run --horizon-days 7` 看比對結果；`run` 真推。
+- [ ] `python3 -m roadcheck run --dry-run` 看比對結果；`run` 真推。
+- [ ] LINE 傳「天數 7」確認天數會改、通知標題變「未來 7 天」。
 
 ## 3. 排程
 
 ```cron
-0 7 * * * cd /path/to/road-check && ROADCHECK_DB=/path/to/roadcheck.sqlite3 LINE_CHANNEL_ACCESS_TOKEN=... python3 -m roadcheck run --horizon-days 7 >> run.log 2>&1
+0 7 * * * cd /path/to/road-check && ROADCHECK_DB=/path/to/roadcheck.sqlite3 LINE_CHANNEL_ACCESS_TOKEN=... python3 -m roadcheck run >> run.log 2>&1
 ```
 
 ## 4. 已知限制與可以再做的事

@@ -55,13 +55,18 @@ def match_all(
     subs: Iterable[Subscription],
     events: Iterable[Event],
     today: Optional[date] = None,
-    horizon_days: int = 2,
+    horizon_days: Optional[int] = None,
 ) -> list[Match]:
+    """每個訂閱用自己的天數（Subscription.days）過濾事件；給 horizon_days 則全部改用這個值。"""
     today = today or date.today()
-    evs = [e for e in events if is_relevant_period(e, today, horizon_days)]
+    events = list(events)
+    by_days: dict[int, list[Event]] = {}
     out: list[Match] = []
     for sub in subs:
-        for ev in evs:
+        days = horizon_days if horizon_days is not None else sub.days
+        if days not in by_days:
+            by_days[days] = [e for e in events if is_relevant_period(e, today, days)]
+        for ev in by_days[days]:
             m = match_one(sub, ev)
             if m:
                 out.append(m)
