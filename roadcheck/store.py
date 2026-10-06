@@ -165,6 +165,26 @@ class Store:
             rows = self.conn.execute("SELECT * FROM events ORDER BY start").fetchall()
         return [Event.from_row(dict(r)) for r in rows]
 
+    def list_current_events(self) -> list[Event]:
+        """每個來源只取最近一次抓取的那一批（upsert_events 同一批共用同一個 last_seen）。
+
+        來源上已經撤銷或過期的案件不會再出現；某個來源今天抓失敗時沿用它上一批。
+        """
+        rows = self.conn.execute(
+            "SELECT e.* FROM events e JOIN (SELECT source, MAX(last_seen) AS m FROM events GROUP BY source) x"
+            " ON e.source = x.source AND e.last_seen = x.m ORDER BY e.start"
+        ).fetchall()
+        return [Event.from_row(dict(r)) for r in rows]
+
+    def source_stats(self) -> list[dict]:
+        """每個來源最近一批的筆數與時間（UTC ISO）。"""
+        rows = self.conn.execute(
+            "SELECT e.source AS source, COUNT(*) AS events, x.m AS updated_at FROM events e"
+            " JOIN (SELECT source, MAX(last_seen) AS m FROM events GROUP BY source) x"
+            " ON e.source = x.source AND e.last_seen = x.m GROUP BY e.source ORDER BY e.source"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     # ---- notifications ----
     def already_notified(self, sub_id: int, event: Event) -> bool:
         row = self.conn.execute(

@@ -14,3 +14,6 @@ roadcheck = "roadcheck.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["roadcheck*"]
+
+[tool.setuptools.package-data]
+"roadcheck.web" = ["static/*.html", "static/*.css", "static/*.js", "static/leaflet/*", "static/leaflet/images/*"]

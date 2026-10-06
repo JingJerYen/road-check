@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>roadcheck｜停車點施工封路查詢</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2c-5.5 0-10 4.3-10 9.7C6 19 16 30 16 30s10-11 10-18.3C26 6.3 21.5 2 16 2z' fill='%23d9480f'/%3E%3Ccircle cx='16' cy='12' r='4' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>roadcheck</h1>
+    <p>台北市停車點附近的施工、封路、集會與臨時佔用道路</p>
+  </header>
+
+  <main class="layout">
+    <section id="map" aria-label="地圖：點一下放圖釘"></section>
+
+    <aside class="panel">
+      <form id="search" class="search" autocomplete="off">
+        <input id="search-input" type="search" placeholder="搜尋地址或地標，例如 西園路二段255號" aria-label="搜尋地址">
+        <button type="submit">搜尋</button>
+        <button type="button" id="locate" title="用我目前的位置">📍</button>
+      </form>
+      <p id="search-msg" class="muted small" hidden></p>
+
+      <div id="pin" class="pin">
+        <span class="muted">在地圖上點一下放圖釘，可以拖曳調整。</span>
+      </div>
+
+      <div class="controls">
+        <div class="control">
+          <span class="label" id="days-label">通知範圍</span>
+          <div class="seg" id="days" role="radiogroup" aria-labelledby="days-label"></div>
+        </div>
+        <div class="control">
+          <span class="label" id="radius-label">半徑</span>
+          <div class="seg" id="radius" role="radiogroup" aria-labelledby="radius-label"></div>
+        </div>
+        <label class="control roads">
+          <span class="label">路名</span>
+          <input id="roads" type="text" placeholder="例如 西園路二段">
+        </label>
+        <p class="muted small">沒有座標的公告（多半是臨時使用道路）靠路名比對；放圖釘後會自動帶入，可以自己改。</p>
+      </div>
+
+      <div id="summary" class="summary" role="status" aria-live="polite"></div>
+      <ol id="results" class="results"></ol>
+
+      <details id="nearby" class="nearby" hidden>
+        <summary></summary>
+        <ol class="results compact"></ol>
+      </details>
+
+      <footer class="data">
+        <div id="data-status" class="small muted">讀取資料狀態…</div>
+        <button type="button" id="refresh" class="link">立即更新資料</button>
+      </footer>
+    </aside>
+  </main>
+
+  <script src="/static/leaflet/leaflet.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

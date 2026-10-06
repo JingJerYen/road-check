@@ -18,6 +18,16 @@
 抓取時間：施工 JSON 幾秒；dig.taipei 預設 7 天、三種模式約 5–10 分鐘（臨時使用道路一天上百件，
 每件逐案抓幾何約 1 秒）。不要臨時使用道路就設 `ROADCHECK_EXT_MODES=EXTREST,RALLY`。
 
+## 網頁（2026-10-06 加入）
+
+`python3 -m roadcheck web` → <http://localhost:8080>。在 Chromium 實測過：放圖釘、拖曳、切天數與半徑、
+點結果卡片縮放地圖、重新整理保留設定、分享網址、手機版與深色模式、空資料庫自動抓資料（Python 3.8 也測過）。
+開發環境連不到 OpenStreetMap 圖磚與 Nominatim，所以截圖底圖是灰的、地址搜尋與自動路名沒實測，
+在一般網路下應該正常；連不上時頁面會提示改用地圖點選。
+
+查詢只用每個來源「最近一批」的資料（`Store.list_current_events`），已撤銷的案件不會出現。
+`roadcheck run` 目前仍用全部歷史事件（靠日期過濾），之後可以考慮也改用最近一批。
+
 ## 0. 環境
 
 雲端環境 Network access 需要允許：

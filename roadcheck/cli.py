@@ -10,6 +10,7 @@
   roadcheck run [--dry-run] [--horizon-days N]      # fetch + match + notify，排程每天跑；N 會覆寫所有訂閱的天數
   roadcheck demo                                     # 用樣本資料跑一遍，不需要網路
   roadcheck serve-line [--port 8000]                 # LINE webhook
+  roadcheck web [--port 8080]                        # 網頁：地圖上放圖釘查詢
 """
 from __future__ import annotations
 
@@ -233,6 +234,14 @@ def cmd_demo(args, store: Store) -> int:
     return 0
 
 
+def cmd_web(args, store: Store) -> int:
+    from .web import serve as serve_web
+    store.close()               # 網站每個請求自己開連線
+    serve_web(args.db, host=args.host, port=args.port, fetch_days=args.fetch_days,
+              refresh_hours=args.refresh_hours, auto_refresh=not args.no_auto_refresh)
+    return 0
+
+
 def cmd_serve_line(args, store: Store) -> int:
     from .linebot import serve
     serve(store, host=args.host, port=args.port)
@@ -288,6 +297,14 @@ def build_parser() -> argparse.ArgumentParser:
     d = sp.add_parser("demo", help="用樣本資料離線跑一遍")
     d.add_argument("--horizon-days", type=int, default=3)
     d.set_defaults(func=cmd_demo)
+
+    w = sp.add_parser("web", help="啟動網頁：在地圖上放圖釘查詢")
+    w.add_argument("--host", default="127.0.0.1", help="預設只給本機；手機要連就用 0.0.0.0")
+    w.add_argument("--port", type=int, default=8080)
+    w.add_argument("--fetch-days", type=int, default=7, help=f"外部管制路段往後抓幾天（{MIN_DAYS}–{MAX_DAYS}，預設 7）")
+    w.add_argument("--refresh-hours", type=float, default=6.0, help="資料超過幾小時就在背景重抓（預設 6）")
+    w.add_argument("--no-auto-refresh", action="store_true", help="不要自動抓資料（只用資料庫裡現有的）")
+    w.set_defaults(func=cmd_web)
 
     l = sp.add_parser("serve-line", help="啟動 LINE webhook")
     l.add_argument("--host", default="0.0.0.0")

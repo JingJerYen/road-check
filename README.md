@@ -19,6 +19,7 @@
 | LINE Messaging API 推播 | ✅ 完成，需 token 實測 |
 | LINE webhook（傳位置即訂閱） | ✅ 完成，需 channel 實測 |
 | 地址轉座標（Google Geocoding API；TGOS 備選） | ✅ 完成，有測試，Google 端點已確認可連，需金鑰實測 |
+| 網頁：地圖放圖釘、選天數與半徑、即時查詢 | ✅ 完成，有測試，瀏覽器實測過 |
 | 排程 | 用 cron 跑 `roadcheck run` |
 
 還沒做的事見 [HANDOFF.md](HANDOFF.md)。
@@ -27,7 +28,7 @@
 
 ```bash
 git clone https://github.com/JingJerYen/road-check && cd road-check
-python3 -m unittest discover -s tests      # 98 tests，離線
+python3 -m unittest discover -s tests      # 109 tests，離線
 python3 -m roadcheck demo                   # 用真實資料的樣本離線跑一遍，看通知長什麼樣
 python3 -m roadcheck fetch                  # 真的去抓（dig.taipei 要翻頁＋逐案抓幾何，約 5–10 分鐘）
 ```
@@ -36,7 +37,23 @@ python3 -m roadcheck fetch                  # 真的去抓（dig.taipei 要翻�
 
 需要能連到：`tpnco.blob.core.windows.net`（施工 JSON）、`dig.taipei`、`api.line.me`，用地址訂閱還要 `maps.googleapis.com`（或 TGOS 的 `addr.tgos.tw`）。
 
-## 使用
+## 網頁（最簡單的用法）
+
+```bash
+python3 -m roadcheck web
+```
+
+打開 <http://localhost:8080>，在地圖上點一下你的停車位置（可以拖曳），選「未來 1／3／7 天」和半徑，
+右邊就會列出會影響那裡的施工、封路、集會與臨時佔用道路，範圍畫在地圖上。
+
+- 第一次啟動資料庫是空的，會在背景自動下載：施工幾秒，外部管制路段約 5–10 分鐘，頁面會自動更新。之後每 6 小時重抓一次（`--refresh-hours`），也可以按頁面下方的「立即更新資料」。
+- 只抓到未來 7 天（`--fetch-days`，最多 14）。設成 14 天抓取會更久。
+- 頁面上的地址搜尋和「自動帶入路名」用 OpenStreetMap 的 Nominatim，在瀏覽器端呼叫，不用金鑰；找不到時直接在地圖上點就好。
+- 設定會記在瀏覽器，網址也會帶著位置與天數（例如 `#25.025954,121.492734,7,100`），可以存成書籤或分享。
+- 手機要用：`python3 -m roadcheck web --host 0.0.0.0`，手機連同一個 Wi-Fi，開 `http://電腦的IP:8080`。
+- 地圖函式庫 Leaflet 1.9.3 已放在 `roadcheck/web/static/leaflet`（BSD 授權），不靠 CDN；底圖圖磚來自 OpenStreetMap。
+
+## 命令列
 
 ```bash
 # 訂閱停車位置（半徑 100 m），並加上路名讓沒座標的公告也能比對
@@ -115,6 +132,7 @@ roadcheck/
   matcher.py   訂閱 × 事件 → Match（有 shapes 對形狀算距離，否則對代表點，都沒有就比路名）
   notify.py    ConsoleNotifier / LineNotifier，訊息格式
   linebot.py   LINE webhook 與指令處理（CommandHandler 與 HTTP 分離，可單測）
+  web/         網頁：WebApp（查詢邏輯）＋ http.server；static/ 是頁面、樣式、腳本與 Leaflet
   geocode.py   地址轉座標（Google Geocoding API；TGOS 備選）
   cli.py       命令列
 tests/fixtures 從真實資料擷取並裁短的樣本（聯絡人已去識別），離線測試用
