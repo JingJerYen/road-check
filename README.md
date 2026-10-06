@@ -16,11 +16,12 @@
 | 資料來源：dig.taipei 外部管制路段（活動管制／使用道路集會／臨時使用道路） | ✅ **已接真資料驗證**，列表＋地圖 API 合併，有多邊形 |
 | 資料來源：停管處禁停公告 | ❌ 未做 |
 | 通知去重（同事件不重複推，日期變更會重推） | ✅ 完成，有測試 |
-| LINE Messaging API 推播 | ✅ 完成，需 token 實測 |
-| LINE webhook（傳位置即訂閱） | ✅ 完成，需 channel 實測 |
+| LINE Messaging API 推播（同一人合併成一則） | ✅ 完成，用假 LINE API 實測過，需真帳號實測 |
+| LINE webhook（傳位置／網站按鈕訂閱、快速按鈕、查詢） | ✅ 完成，用假 LINE API 實測過，需真帳號實測 |
+| 一個程式全包（`roadcheck serve`：網站＋webhook＋每天推播） | ✅ 完成，有測試 |
 | 地址轉座標（Google Geocoding API；TGOS 備選） | ✅ 完成，有測試，Google 端點已確認可連，需金鑰實測 |
 | 網頁：地圖放圖釘、選天數與半徑、即時查詢 | ✅ 完成，有測試，瀏覽器實測過 |
-| 排程 | 用 cron 跑 `roadcheck run` |
+| 排程 | `roadcheck serve` 內建（台灣時間）；或 cron 跑 `roadcheck run` |
 
 還沒做的事見 [HANDOFF.md](HANDOFF.md)。
 
@@ -28,14 +29,14 @@
 
 ```bash
 git clone https://github.com/JingJerYen/road-check && cd road-check
-python3 -m unittest discover -s tests      # 109 tests，離線
+python3 -m unittest discover -s tests      # 125 tests，離線
 python3 -m roadcheck demo                   # 用真實資料的樣本離線跑一遍，看通知長什麼樣
 python3 -m roadcheck fetch                  # 真的去抓（dig.taipei 要翻頁＋逐案抓幾何，約 5–10 分鐘）
 ```
 
 `pip install -e .` 之後可以直接用 `roadcheck` 指令，不裝也能用 `python3 -m roadcheck`。
 
-需要能連到：`tpnco.blob.core.windows.net`（施工 JSON）、`dig.taipei`、`api.line.me`，用地址訂閱還要 `maps.googleapis.com`（或 TGOS 的 `addr.tgos.tw`）。
+需要能連到：`tpnco.blob.core.windows.net`（施工 JSON）、`dig.taipei`、`api.line.me`（LINE），用地址訂閱還要 `maps.googleapis.com`（或 TGOS 的 `addr.tgos.tw`）。
 
 ## 網頁（最簡單的用法）
 
@@ -85,25 +86,28 @@ roadcheck run                         # 正式跑；放進 cron 每天早上跑�
 
 ### LINE Bot
 
-1. 到 LINE Developers 建一個 Messaging API channel，拿 **channel secret** 與 **channel access token (long-lived)**。
-2. 設定環境變數：
+讓其他人用 LINE 訂閱：加好友後「傳送位置」就訂閱了，或在網站上放好圖釘按「用 LINE 訂閱這個位置」。
+每天早上那附近有新的異動才推播。上線步驟（建官方帳號、公開網址、常駐）見 **[docs/LINE上線.md](docs/LINE上線.md)**。
 
-   ```bash
-   export LINE_CHANNEL_SECRET=...
-   export LINE_CHANNEL_ACCESS_TOKEN=...
-   ```
+```bash
+export LINE_CHANNEL_SECRET=... LINE_CHANNEL_ACCESS_TOKEN=... LINE_BOT_BASIC_ID=@xxxx
+export ROADCHECK_PUBLIC_URL=https://你的公開網址
+python3 -m roadcheck serve          # 網站 + /line/webhook + 每天台灣時間 07:00 推播
+```
 
-3. 啟動 webhook，並把公開網址（ngrok、Cloudflare Tunnel 皆可）填到 channel 的 Webhook URL：
+LINE 裡的指令（回覆都附快速按鈕）：
 
-   ```bash
-   roadcheck serve-line --port 8000
-   ```
+| 傳什麼 | 做什麼 |
+| --- | --- |
+| 📍 位置 | 訂閱那個點（半徑 100 m、未來 3 天），立刻回覆目前那裡的狀況 |
+| `訂閱 25.0259,121.4927 200m 7天 名稱` | 用座標訂閱（網站按鈕送的就是這個）；直接貼「緯度, 經度」也行 |
+| `查詢` | 現在每個訂閱附近有什麼 |
+| `天數 7`、`半徑 200` | 改最近一筆；後面加編號改指定那筆，例如 `天數 7 2` |
+| `列表`、`刪除 2`、`地圖` | 看訂閱、刪除、拿網頁連結 |
+| `路名 西園路二段`、`地址 …`、`路線 …` | 進階：加路名比對、用地址訂閱、訂閱路線 |
 
-4. 使用者加好友後，在 LINE 裡**傳送位置**就完成訂閱，或傳「`地址 台北市西園路二段255號`」。
-   其他指令：`列表`、`刪除 2`、`半徑 200`、`天數 7`（或 `天數 7 2` 改第 2 筆）、`路線 lat,lon;lat,lon`、`路名 忠孝東路四段`、`幫助`。
-5. cron 每天跑 `roadcheck run`，有異動就推播給對應的 LINE userId。
-
-免費方案每月 200 則推播，webhook 回覆走 reply 不計費。LINE Notify 已停止服務，這裡用的是 Messaging API。
+只想自己用、不開伺服器也可以：`roadcheck subscribe ... --line-user Uxxx` 加訂閱，cron 每天跑 `roadcheck run`。
+`roadcheck serve-line` 是舊的單獨 webhook，仍可用，但建議改用 `serve`。
 
 ### 地址轉座標
 
@@ -132,7 +136,8 @@ roadcheck/
   matcher.py   訂閱 × 事件 → Match（有 shapes 對形狀算距離，否則對代表點，都沒有就比路名）
   notify.py    ConsoleNotifier / LineNotifier，訊息格式
   linebot.py   LINE webhook 與指令處理（CommandHandler 與 HTTP 分離，可單測）
-  web/         網頁：WebApp（查詢邏輯）＋ http.server；static/ 是頁面、樣式、腳本與 Leaflet
+  service.py   推播流程（同一人合併、回覆過的不重推），run／serve／LINE 共用
+  web/         網頁＋LINE webhook＋每日排程：WebApp（邏輯）＋ http.server；static/ 是頁面、樣式、腳本與 Leaflet
   geocode.py   地址轉座標（Google Geocoding API；TGOS 備選）
   cli.py       命令列
 tests/fixtures 從真實資料擷取並裁短的樣本（聯絡人已去識別），離線測試用

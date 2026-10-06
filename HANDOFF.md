@@ -57,13 +57,15 @@ GET 參數是否被接受、XML 包 JSON 的格式、`AddressList` 欄位名、�
 
 ## 2. LINE 實測（還沒做）
 
-- [ ] 建 Messaging API channel，設 `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`。
-- [ ] `python3 -m roadcheck serve-line`，用 ngrok 或 Cloudflare Tunnel 暴露，填 Webhook URL，開 "Use webhook"。
-- [ ] 加好友 → 傳位置 → 收到「已訂閱」；傳「地址 台北市西園路二段255號」也要能訂閱。
-- [ ] `python3 -m roadcheck run --dry-run` 看比對結果；`run` 真推。
-- [ ] LINE 傳「天數 7」確認天數會改、通知標題變「未來 7 天」。
+照 [docs/LINE上線.md](docs/LINE上線.md) 建官方帳號、開 `roadcheck serve`、填 webhook，第 4 步走一遍。
+開發環境已經用假的 LINE API（`LINE_API_BASE` 指到本機）跑過完整流程：簽章、傳位置訂閱、網站按鈕帶入的
+「訂閱 lat,lon 100m 7天」、查詢、加好友、到點推播（同一人合併成一次 push）。要確認的是真 API 是否接受
+quickReply（含 location action）與 push 多則訊息，以及網站按鈕的 `line.me/R/oaMessage/@id/?文字` 在手機上會帶入文字。
 
 ## 3. 排程
+
+`roadcheck serve` 內建每天台灣時間 07:00 推播（`--notify-at`），推播前資料超過 2 小時會先重抓；
+上次推播日期存在資料庫 `meta` 表，伺服器重開不會重送。只用命令列的話仍可用 cron：
 
 ```cron
 0 7 * * * cd /path/to/road-check && ROADCHECK_DB=/path/to/roadcheck.sqlite3 LINE_CHANNEL_ACCESS_TOKEN=... python3 -m roadcheck run >> run.log 2>&1

@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS events (
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS notifications (
     subscription_id INTEGER NOT NULL,
     event_key TEXT NOT NULL,
@@ -184,6 +188,16 @@ class Store:
             " ON e.source = x.source AND e.last_seen = x.m GROUP BY e.source ORDER BY e.source"
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ---- meta（排程狀態等小設定）----
+    def get_meta(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        row = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)"
+                          " ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+        self.conn.commit()
 
     # ---- notifications ----
     def already_notified(self, sub_id: int, event: Event) -> bool:

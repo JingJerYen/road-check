@@ -11,6 +11,7 @@
   roadcheck demo                                     # 用樣本資料跑一遍，不需要網路
   roadcheck serve-line [--port 8000]                 # LINE webhook
   roadcheck web [--port 8080]                        # 網頁：地圖上放圖釘查詢
+  roadcheck serve [--port 8080] [--notify-at 07:00]  # 網頁 + LINE webhook + 每天推播（正式上線用這個）
 """
 from __future__ import annotations
 
@@ -21,12 +22,14 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+from .dates import taipei_today
 from .geo import decode_polyline, parse_points
 from .geocode import GeocodeError, get_geocoder
 from .matcher import match_all
 from .models import MAX_DAYS, MIN_DAYS, Subscription, extract_roads
 from .notify import ConsoleNotifier, format_digest, get_notifier, group_by_subscription
 from .sources import ALL_SOURCES, SourceError
+from .service import run_notifications
 from .store import DEFAULT_DB, Store
 
 FIXTURE_DIR = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
@@ -167,36 +170,12 @@ def cmd_fetch(args, store: Store) -> int:
     return 1 if _fetch_into_store(store, names, args.from_file, args.dump, ext_fetch_days(store)) else 0
 
 
-def _notify(store: Store, subs, events, today, horizon_days, dry_run) -> int:
-    matches = match_all(subs, events, today=today, horizon_days=horizon_days)
-    fresh = [m for m in matches if not store.already_notified(m.subscription.id, m.event)]
-    print(f"{len(matches)} matches, {len(fresh)} not yet notified")
-    sent = 0
-    for sub_id, group in group_by_subscription(fresh).items():
-        sub = group[0].subscription
-        text = format_digest(sub.name, group, days=horizon_days if horizon_days is not None else sub.days)
-        try:
-            notifier = get_notifier(sub.channel, dry_run=dry_run)
-            notifier.send(sub.channel_target, text)
-        except Exception as e:  # noqa: BLE001
-            print(f"[{sub.channel}] send failed for #{sub_id}: {e}", file=sys.stderr)
-            continue
-        if not dry_run:
-            for m in group:
-                store.mark_notified(sub_id, m.event)
-        sent += 1
-    print(f"sent {sent} digest(s){' (dry-run, nothing recorded)' if dry_run else ''}")
-    return 0
-
-
 def cmd_run(args, store: Store) -> int:
     if not args.skip_fetch:
         _fetch_into_store(store, list(ALL_SOURCES), None, False, ext_fetch_days(store, args.horizon_days))
-    subs = store.list_subscriptions()
-    if not subs:
-        print("no subscriptions; nothing to do")
-        return 0
-    return _notify(store, subs, store.list_events(), date.today(), args.horizon_days, args.dry_run)
+    stats = run_notifications(store, get_notifier, today=taipei_today(), horizon_days=args.horizon_days,
+                              dry_run=args.dry_run, public_url=os.environ.get("ROADCHECK_PUBLIC_URL", ""))
+    return 1 if stats["failed"] else 0
 
 
 def cmd_demo(args, store: Store) -> int:
@@ -239,6 +218,15 @@ def cmd_web(args, store: Store) -> int:
     store.close()               # 網站每個請求自己開連線
     serve_web(args.db, host=args.host, port=args.port, fetch_days=args.fetch_days,
               refresh_hours=args.refresh_hours, auto_refresh=not args.no_auto_refresh)
+    return 0
+
+
+def cmd_serve(args, store: Store) -> int:
+    from .web import serve as serve_web
+    store.close()
+    serve_web(args.db, host=args.host, port=args.port, fetch_days=args.fetch_days,
+              refresh_hours=args.refresh_hours, auto_refresh=not args.no_auto_refresh,
+              line=True, notify_at=args.notify_at or None, public_url=args.public_url or "")
     return 0
 
 
@@ -305,6 +293,16 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--refresh-hours", type=float, default=6.0, help="資料超過幾小時就在背景重抓（預設 6）")
     w.add_argument("--no-auto-refresh", action="store_true", help="不要自動抓資料（只用資料庫裡現有的）")
     w.set_defaults(func=cmd_web)
+
+    sv = sp.add_parser("serve", help="正式上線：網頁 + LINE webhook（/line/webhook）+ 每天定時推播")
+    sv.add_argument("--host", default="127.0.0.1", help="放在 Cloudflare Tunnel／ngrok 後面用預設即可")
+    sv.add_argument("--port", type=int, default=8080)
+    sv.add_argument("--fetch-days", type=int, default=7, help=f"外部管制路段往後抓幾天（{MIN_DAYS}–{MAX_DAYS}）")
+    sv.add_argument("--refresh-hours", type=float, default=6.0)
+    sv.add_argument("--no-auto-refresh", action="store_true")
+    sv.add_argument("--notify-at", default="07:00", help="台灣時間每天幾點推播（HH:MM，空字串表示不推播）")
+    sv.add_argument("--public-url", default="", help="網站公開網址，推播會附地圖連結（或設 ROADCHECK_PUBLIC_URL）")
+    sv.set_defaults(func=cmd_serve)
 
     l = sp.add_parser("serve-line", help="啟動 LINE webhook")
     l.add_argument("--host", default="0.0.0.0")

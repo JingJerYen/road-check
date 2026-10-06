@@ -2,8 +2,19 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+
+# 台灣沒有日光節約時間，固定 UTC+8；伺服器放在雲端（多半是 UTC）時，「今天」和推播時間都要用這個算
+TAIPEI_TZ = timezone(timedelta(hours=8), "Asia/Taipei")
+
+
+def taipei_now() -> datetime:
+    return datetime.now(TAIPEI_TZ)
+
+
+def taipei_today() -> date:
+    return taipei_now().date()
 
 _DIGITS = re.compile(r"\d+")
 

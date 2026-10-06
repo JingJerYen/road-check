@@ -98,6 +98,7 @@
       reverseGeocode(lat, lon);
     }
     renderPin();
+    renderLine();
     save();
     check();
   }
@@ -122,10 +123,10 @@
     var dayChoices = DAY_CHOICES.slice();
     if (dayChoices.indexOf(state.days) < 0) { dayChoices.push(state.days); dayChoices.sort(function (a, b) { return a - b; }); }
     renderSeg($("days"), dayChoices, state.days, function (v) { return "未來 " + v + " 天"; }, maxDays, function (v) {
-      state.days = v; renderControls(); save(); check();
+      state.days = v; renderControls(); renderLine(); save(); check();
     });
     renderSeg($("radius"), RADIUS_CHOICES, state.radius, function (v) { return v + " m"; }, null, function (v) {
-      state.radius = v; if (circle) circle.setRadius(v); renderControls(); save(); check();
+      state.radius = v; if (circle) circle.setRadius(v); renderControls(); renderLine(); save(); check();
     });
     if (document.activeElement !== $("roads")) $("roads").value = state.roads;
   }
@@ -156,6 +157,7 @@
         check();
       }
       renderPin();
+      renderLine();
       save();
     }).catch(function () { /* 連不到 Nominatim：路名請手動輸入 */ });
   }
@@ -330,6 +332,21 @@
     }
   }
 
+  // ---------- LINE 訂閱 ----------
+  function lineSubscribeText() {
+    var text = "訂閱 " + state.lat.toFixed(6) + "," + state.lon.toFixed(6) + " " + state.radius + "m " + state.days + "天";
+    return state.address ? text + " " + state.address : text;
+  }
+  function renderLine() {
+    var box = $("line-box");
+    var line = status && status.line;
+    if (!line || !line.enabled || !line.basic_id || state.lat == null) { box.hidden = true; return; }
+    box.hidden = false;
+    $("line-subscribe").href = "https://line.me/R/oaMessage/" + encodeURIComponent(line.basic_id) + "/?" +
+      encodeURIComponent(lineSubscribeText());
+    $("line-add").href = line.add_friend_url;
+  }
+
   // ---------- data status ----------
   function renderStatus() {
     if (!status) return;
@@ -342,6 +359,7 @@
     $("data-status").textContent = text;
     $("refresh").disabled = !!status.refreshing;
     renderControls();
+    renderLine();
     if (status.refreshing && !pollTimer) {
       pollTimer = setInterval(pollStatus, 5000);
     } else if (!status.refreshing && pollTimer) {

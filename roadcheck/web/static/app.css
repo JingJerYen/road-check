@@ -40,6 +40,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }   /* 不然 .line-box 的 display:flex 會蓋掉 hidden 屬性 */
 html, body { height: 100%; margin: 0; }
 body {
   background: var(--bg);
@@ -111,6 +112,14 @@ button, input { font: inherit; color: inherit; }
 .summary.warn { background: var(--warn-bg); color: var(--warn-text); }
 .summary.bad { background: var(--bad-bg); color: var(--bad-text); }
 .summary.info { background: var(--bg); color: var(--muted); font-weight: 400; }
+
+.line-box { display: flex; flex-direction: column; gap: 6px; }
+.line-btn {
+  display: block; text-align: center; text-decoration: none; font-weight: 600;
+  background: #06c755; color: #fff; border-radius: 8px; padding: 10px 12px;
+}
+.line-btn:hover { background: #05b34c; }
+.line-box a:not(.line-btn) { color: var(--focus); }
 
 .results { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
 .card {

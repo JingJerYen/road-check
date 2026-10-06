@@ -1,6 +1,7 @@
 """簡易網站：在地圖上放圖釘、選未來幾天，查詢會影響那裡的施工與封路。
 
-  roadcheck web [--port 8080] [--host 127.0.0.1] [--fetch-days 7] [--refresh-hours 6]
+  roadcheck web   [--port 8080] [--host 127.0.0.1] [--fetch-days 7] [--refresh-hours 6]
+  roadcheck serve [同上] [--notify-at 07:00]      # 網站 + LINE webhook + 每天定時推播，一個程式全包
 
 純標準庫 http.server。地圖用 Leaflet（放在 static/leaflet，不靠 CDN）＋ OpenStreetMap 圖磚。
 
@@ -9,6 +10,7 @@ API：
   GET  /api/check?lat=&lon=&radius=&days=&roads=a,b
                                            範圍內的事件（matches）與附近的事件（nearby，畫在地圖上當參考）
   POST /api/refresh                        立刻在背景重新抓資料
+  POST /line/webhook                       LINE Messaging API webhook（有設 LINE_CHANNEL_ACCESS_TOKEN 才開）
 
 資料放在 SQLite（跟 roadcheck run 共用同一個資料庫）。伺服器啟動時資料太舊或沒有資料就在背景抓，
 之後每 refresh_hours 小時再抓一次。
@@ -18,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import os
 import threading
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -26,8 +29,12 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import parse_qs, urlsplit
 
+from ..dates import taipei_now, taipei_today
+from ..linebot import CommandHandler, dispatch_events, parse_webhook
 from ..matcher import distance_m, is_relevant_period
 from ..models import KIND_LABEL, MAX_DAYS, MIN_DAYS, Event, Subscription, normalize_road
+from ..notify import LineNotifier, get_notifier
+from ..service import run_notifications
 from ..sources import ALL_SOURCES, SourceError
 from ..store import Store
 
@@ -70,16 +77,44 @@ def fetch_all(db_path: str, ext_days: int) -> list:
     return results
 
 
+def parse_hhmm(text: Optional[str]):
+    """'07:00' -> (7, 0)；空字串或 None 表示不排程。"""
+    if not text:
+        return None
+    h, _, m = text.strip().partition(":")
+    hh, mm = int(h), int(m or 0)
+    if not (0 <= hh < 24 and 0 <= mm < 60):
+        raise ValueError(f"bad time {text!r}, use HH:MM")
+    return hh, mm
+
+
 class WebApp:
-    """不含 HTTP 的邏輯，方便測試。"""
+    """不含 HTTP 的邏輯，方便測試。
+
+    LINE：有 line_token 才開 webhook 與推播；line_secret 用來驗章（正式上線一定要設）。
+    notify_at：台灣時間每天幾點推播（'07:00'），None 表示不推播（只當網站用）。
+    """
 
     def __init__(self, db_path: str, fetch_days: int = 7, refresh_hours: float = 6.0,
-                 fetcher: Optional[Fetcher] = None, today: Optional[Callable[[], date]] = None):
+                 fetcher: Optional[Fetcher] = None, today: Optional[Callable[[], date]] = None,
+                 line_token: str = "", line_secret: str = "", line_basic_id: str = "", public_url: str = "",
+                 notify_at: Optional[str] = None, line_reply: Optional[Callable[[str, str], None]] = None,
+                 notifier_factory: Optional[Callable] = None, now: Optional[Callable[[], datetime]] = None):
         self.db_path = db_path
         self.fetch_days = max(MIN_DAYS, min(int(fetch_days), MAX_DAYS))
         self.refresh_hours = refresh_hours
         self.fetcher = fetcher or fetch_all
-        self.today = today or date.today
+        self.today = today or taipei_today
+        self.now = now or taipei_now
+        self.line_token = line_token
+        self.line_secret = line_secret
+        self.line_basic_id = line_basic_id.strip()
+        if self.line_basic_id and not self.line_basic_id.startswith("@"):
+            self.line_basic_id = "@" + self.line_basic_id
+        self.public_url = public_url.rstrip("/")
+        self.notify_at = parse_hhmm(notify_at)
+        self._line_reply = line_reply
+        self.notifier_factory = notifier_factory or get_notifier
         self._lock = threading.Lock()
         self._refreshing = False
         self._last_error: Optional[str] = None
@@ -111,8 +146,13 @@ class WebApp:
             store.close()
         with self._lock:
             refreshing, err = self._refreshing, self._last_error
+        line = {"enabled": self.line_enabled, "basic_id": self.line_basic_id}
+        if self.line_basic_id:
+            line["add_friend_url"] = f"https://line.me/R/ti/p/{self.line_basic_id}"
         return {
             "today": self.today().isoformat(),
+            "line": line,
+            "notify_at": "%02d:%02d" % self.notify_at if self.notify_at else None,
             "fetch_days": self.fetch_days,
             "min_days": MIN_DAYS,
             "max_days": MAX_DAYS,
@@ -121,12 +161,13 @@ class WebApp:
             "sources": [dict(s, label=SOURCE_LABEL.get(s["source"], s["source"])) for s in stats],
         }
 
-    def is_stale(self) -> bool:
+    def is_stale(self, max_age_hours: Optional[float] = None) -> bool:
         stats = self.status()["sources"]
         if len(stats) < len(ALL_SOURCES):
             return True
         oldest = min(_parse_ts(s["updated_at"]) for s in stats)
-        return datetime.now(timezone.utc) - oldest > timedelta(hours=self.refresh_hours)
+        hours = self.refresh_hours if max_age_hours is None else max_age_hours
+        return datetime.now(timezone.utc) - oldest > timedelta(hours=hours)
 
     def refresh(self, wait: bool = False) -> bool:
         """在背景重新抓資料；已經在抓就不重複。回傳這次有沒有啟動。"""
@@ -167,6 +208,68 @@ class WebApp:
                 log.exception("auto refresh check failed")
             stop.wait(check_every_s)
 
+    # ---- LINE ----
+    @property
+    def line_enabled(self) -> bool:
+        return bool(self.line_token or self._line_reply)
+
+    def line_webhook(self, body: bytes, signature: str):
+        """驗章＋解析，回傳 (HTTP 狀態碼, events)；之後要呼叫 handle_line_events。"""
+        if not self.line_enabled:
+            return 404, []
+        return parse_webhook(body, signature, self.line_secret)
+
+    def handle_line_events(self, events: list) -> None:
+        if not events:
+            return
+        reply = self._line_reply or LineNotifier(self.line_token).reply
+        store = Store(self.db_path)
+        try:
+            handler = CommandHandler(store, public_url=self.public_url, today=self.today)
+            dispatch_events(events, handler.handle_event, reply)
+        finally:
+            store.close()
+
+    # ---- 每日推播 ----
+    def notify_due(self) -> bool:
+        if not self.notify_at:
+            return False
+        now = self.now()
+        if (now.hour, now.minute) < self.notify_at:
+            return False
+        store = Store(self.db_path)
+        try:
+            return store.get_meta("last_notify_date") != now.date().isoformat()
+        finally:
+            store.close()
+
+    def run_daily_notify(self, max_wait_s: float = 1800.0) -> dict:
+        """推播前先確認資料夠新（超過 2 小時就重抓並等它抓完），再比對送出。"""
+        if self.is_stale(max_age_hours=2):
+            if not self.refresh(wait=True):          # 已經有別的更新在跑，等它
+                deadline = time.time() + max_wait_s
+                while self.status()["refreshing"] and time.time() < deadline:
+                    time.sleep(5)
+        today = self.today()
+        store = Store(self.db_path)
+        try:
+            stats = run_notifications(store, self.notifier_factory, today=today, public_url=self.public_url,
+                                      out=lambda msg: log.info("notify: %s", msg))
+            store.set_meta("last_notify_date", self.now().date().isoformat())
+        finally:
+            store.close()
+        return stats
+
+    def schedule_loop(self, stop: threading.Event, check_every_s: float = 60.0) -> None:
+        while not stop.is_set():
+            try:
+                if self.notify_due():
+                    log.info("daily notify starting")
+                    log.info("daily notify done: %s", self.run_daily_notify())
+            except Exception:  # noqa: BLE001
+                log.exception("daily notify failed")
+            stop.wait(check_every_s)
+
     # ---- query ----
     def check(self, lat: float, lon: float, radius_m: float = 100.0, days: int = 3,
               roads: Optional[list] = None) -> dict:
@@ -203,6 +306,10 @@ class WebApp:
             "nearby_radius_m": nearby_m,
             "status": self.status(),
         }
+
+
+def status_time(app: "WebApp") -> str:
+    return "%02d:%02d" % app.notify_at if app.notify_at else "-"
 
 
 def _parse_ts(s: str) -> datetime:
@@ -327,6 +434,15 @@ def make_handler(app: WebApp):
 
         def do_POST(self):
             path = urlsplit(self.path).path
+            if path == "/line/webhook":
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > 1_000_000:
+                    self._json(413, {"error": "too large"})
+                    return
+                code, events = app.line_webhook(self.rfile.read(length), self.headers.get("X-Line-Signature", ""))
+                self._send(code, b"", "text/plain")       # LINE 要求盡快回應，回完再處理
+                app.handle_line_events(events)
+                return
             if path == "/api/refresh":
                 started = app.refresh()
                 self._json(202 if started else 200, {"started": started, "status": app.status()})
@@ -337,14 +453,32 @@ def make_handler(app: WebApp):
 
 
 def serve(db_path: str, host: str = "127.0.0.1", port: int = 8080, fetch_days: int = 7,
-          refresh_hours: float = 6.0, auto_refresh: bool = True) -> None:
-    app = WebApp(db_path, fetch_days=fetch_days, refresh_hours=refresh_hours)
+          refresh_hours: float = 6.0, auto_refresh: bool = True, line: bool = False,
+          notify_at: Optional[str] = None, public_url: str = "") -> None:
+    """line=True 時從環境變數讀 LINE 設定並開 webhook；notify_at 給時間就每天推播。"""
+    env = os.environ
+    kwargs = {}
+    if line:
+        kwargs = dict(line_token=env.get("LINE_CHANNEL_ACCESS_TOKEN", ""),
+                      line_secret=env.get("LINE_CHANNEL_SECRET", ""),
+                      line_basic_id=env.get("LINE_BOT_BASIC_ID", ""))
+        if not kwargs["line_token"]:
+            raise SystemExit("roadcheck serve 需要 LINE_CHANNEL_ACCESS_TOKEN（只要網站就用 roadcheck web）")
+        if not kwargs["line_secret"]:
+            log.warning("LINE_CHANNEL_SECRET 沒設，webhook 不驗章（只能在開發時這樣用）")
+    app = WebApp(db_path, fetch_days=fetch_days, refresh_hours=refresh_hours, notify_at=notify_at,
+                 public_url=public_url or env.get("ROADCHECK_PUBLIC_URL", ""), **kwargs)
     server = ThreadingHTTPServer((host, port), make_handler(app))
     stop = threading.Event()
     if auto_refresh:
         threading.Thread(target=app.auto_refresh_loop, args=(stop,), name="roadcheck-auto", daemon=True).start()
+    if app.notify_at:
+        threading.Thread(target=app.schedule_loop, args=(stop,), name="roadcheck-notify", daemon=True).start()
     shown = "localhost" if host in ("127.0.0.1", "0.0.0.0", "") else host
-    print(f"roadcheck web：打開瀏覽器到 http://{shown}:{server.server_address[1]}/  （Ctrl+C 結束）")
+    print(f"roadcheck：打開瀏覽器到 http://{shown}:{server.server_address[1]}/  （Ctrl+C 結束）")
+    if app.line_enabled:
+        print(f"LINE webhook：{app.public_url or '<公開網址>'}/line/webhook　"
+              f"每天台灣時間 {status_time(app)} 推播" if app.notify_at else "LINE webhook：/line/webhook（沒有排程推播）")
     if auto_refresh and app.is_stale():
         print("資料不存在或太舊，背景下載中（施工幾秒，外部管制路段約 5–10 分鐘），網頁會顯示進度。")
     try:
