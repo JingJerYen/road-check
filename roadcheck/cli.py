@@ -166,10 +166,12 @@ def cmd_demo(args, store: Store) -> int:
     today = date.today()
     cons = TaipeiTodayConstruction().from_file(FIXTURE_DIR / "taipei_today_construction.real.json")
     rest = TaipeiExtRestriction().from_file(FIXTURE_DIR / "taipei_ext_restriction.real.json")
-    # 樣本日期是固定的（2026-10）；已經過期的事件平移成從今天開始，還沒過期的照原樣
+    # 樣本日期是固定的（2026-10）；不在「今天起 horizon 天內」的事件平移成從今天開始，長度不變，
+    # 這樣不管哪天跑 demo 都看得到通知
+    window_end = today + timedelta(days=args.horizon_days)
     shifted = 0
     for e in cons + rest:
-        if e.start and e.end and e.end < today:
+        if e.start and e.end and (e.end < today or e.start > window_end):
             delta = today - e.start
             e.start += delta
             e.end += delta
@@ -182,7 +184,7 @@ def cmd_demo(args, store: Store) -> int:
                      points=[(25.0380, 121.5175), (25.0399, 121.5168), (25.0450, 121.5300), (25.0447, 121.5750)],
                      radius_m=60, roads=["凱達格蘭大道"]),
     ]
-    print(f"demo: {len(cons)} construction + {len(rest)} restriction sample events ({shifted} past events moved to today)")
+    print(f"demo: {len(cons)} construction + {len(rest)} restriction sample events ({shifted} moved to start today)")
     matches = match_all(subs, cons + rest, today=today, horizon_days=args.horizon_days)
     for sub_id, group in group_by_subscription(matches).items():
         ConsoleNotifier().send(group[0].subscription.name, format_digest(group[0].subscription.name, group))

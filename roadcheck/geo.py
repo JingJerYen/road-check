@@ -5,11 +5,11 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, Tuple
 
 EARTH_RADIUS_M = 6_371_008.8
 
-LatLon = tuple[float, float]  # (lat, lon)
+LatLon = Tuple[float, float]  # (lat, lon)；用 typing.Tuple 才能在 Python 3.8 執行
 
 
 def haversine_m(a: LatLon, b: LatLon) -> float:

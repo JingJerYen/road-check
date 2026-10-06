@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "roadcheck"
 version = "0.2.0"
 description = "訂閱台北市通勤路線或停車位置，施工、封路、禁停有異動就推播通知"
-requires-python = ">=3.11"
+requires-python = ">=3.8"
 dependencies = []
 
 [project.scripts]

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .base import Source, SourceError
 from .taipei_today_construction import TaipeiTodayConstruction
 from .taipei_ext_restriction import TaipeiExtRestriction
